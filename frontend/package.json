@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "license": "ISC",
+  "author": "Harsh Gautam",
   "description": "Frontend for the AI Video Teaser Generator",
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
