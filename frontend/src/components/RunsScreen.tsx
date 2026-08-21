@@ -25,7 +25,7 @@ interface Props {
   onRetry: (job: JobSummary) => Promise<void>;
 }
 
-const TERMINAL: JobStatus[] = ["completed", "failed"];
+const TERMINAL: JobStatus[] = ["completed", "failed", "cancelled"];
 
 function isRunning(job: JobSummary): boolean {
   return !TERMINAL.includes(job.status);
@@ -47,6 +47,15 @@ function RunStatus({ job }: { job: JobSummary }) {
       <span className="status">
         <span className="status-dot" />
         Success
+      </span>
+    );
+  }
+  // Neutral, not red: the run was stopped on purpose and did not go wrong.
+  if (job.status === "cancelled") {
+    return (
+      <span className="status">
+        <span className="status-dot" />
+        Cancelled
       </span>
     );
   }
@@ -184,6 +193,7 @@ export default function RunsScreen({
                     <option value={ALL}>Any status</option>
                     <option value="completed">Success</option>
                     <option value="failed">Failed</option>
+                    <option value="cancelled">Cancelled</option>
                     <option value="queued">Queued</option>
                   </select>
                 </label>

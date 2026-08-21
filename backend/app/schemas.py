@@ -97,6 +97,9 @@ class VideoListResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+    # Per-dependency detail, so an unhealthy instance says which part is broken
+    # rather than only that something is.
+    checks: dict[str, str] = {}
 
 
 class GenerateRequest(BaseModel):

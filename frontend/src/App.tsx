@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 
 import {
+  cancelJob,
   getJob,
   getTeasers,
   getVideo,
@@ -138,6 +139,7 @@ interface StepActionsProps {
   onRetry: () => void;
   onViewTeasers: () => void;
   onStartOver: () => void;
+  onCancel: () => void;
 }
 
 /** The primary action for wherever the run currently is.
@@ -159,6 +161,7 @@ function StepActions({
   onRetry,
   onViewTeasers,
   onStartOver,
+  onCancel,
 }: StepActionsProps) {
   if (step === "source") {
     // Uploading is the action here; this only appears once it has produced
@@ -187,7 +190,7 @@ function StepActions({
   }
 
   if (step === "processing") {
-    if (job?.status === "failed") {
+    if (job?.status === "failed" || job?.status === "cancelled") {
       return (
         <>
           <button
@@ -200,7 +203,7 @@ function StepActions({
           </button>
           <button type="button" className="btn btn-primary btn-lg" onClick={onRetry}>
             <Icon name="refresh-cw" size={15} />
-            Try Again
+            {job.status === "cancelled" ? "Run Again" : "Try Again"}
           </button>
         </>
       );
@@ -217,12 +220,18 @@ function StepActions({
         </button>
       );
     }
-    // Still running. Nothing to offer but leaving, and that is worth offering:
-    // a long analysis with no visible exit reads as a trap.
+    // Still running. Cancel stops the run server-side rather than just walking
+    // away from it: abandoning the page used to leave the worker analysing and
+    // cutting clips for a run nobody was waiting for.
     return (
-      <button type="button" className="btn btn-outline btn-lg" onClick={onStartOver}>
+      <button
+        type="button"
+        className="btn btn-outline btn-lg"
+        onClick={onCancel}
+        disabled={busy && job === null}
+      >
         <Icon name="x" size={15} />
-        Cancel
+        Cancel Run
       </button>
     );
   }
@@ -415,6 +424,9 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
             const result = await getTeasers(current.video_id, current.job_id);
             setTeasers(result.teasers);
             if (result.teasers.length > 0) setStep("teasers");
+          } else if (current.status === "cancelled") {
+            // Stopped on purpose, so it is not surfaced as a failure.
+            stopPolling();
           } else if (current.status === "failed") {
             stopPolling();
             setFailure({
@@ -430,6 +442,34 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
       }, POLL_INTERVAL_MS);
     } catch (error) {
       setFailure(toFailure(error));
+    }
+  };
+
+  /** Stop the run on the server, not just in this tab.
+   *
+   *  Polling stops on the response rather than waiting for the next tick, so the
+   *  panel settles immediately instead of showing one more stage first. */
+  const handleCancelRun = async () => {
+    if (!job) return;
+    setFailure(null);
+    try {
+      const stopped = await cancelJob(job.job_id);
+      stopPolling();
+      setJob(stopped);
+    } catch (error) {
+      // A run that finished between the last poll and the click is a 409. That
+      // is not worth an error banner -- refresh and let the panel show the
+      // outcome it actually reached.
+      const failed = toFailure(error);
+      if (failed.code === "JOB_NOT_CANCELLABLE") {
+        try {
+          setJob(await getJob(job.job_id));
+        } catch {
+          /* the next poll will catch up */
+        }
+        return;
+      }
+      setFailure(failed);
     }
   };
 
@@ -511,14 +551,14 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
   };
 
   // ------------------------------------------------------------------
-  const busy =
-    uploading ||
-    fetching ||
-    (job !== null && job.status !== "completed" && job.status !== "failed");
-  const canGenerate = video !== null && !busy;
-
   const jobFinished =
-    job !== null && (job.status === "completed" || job.status === "failed");
+    job !== null &&
+    (job.status === "completed" ||
+      job.status === "failed" ||
+      job.status === "cancelled");
+
+  const busy = uploading || fetching || (job !== null && !jobFinished);
+  const canGenerate = video !== null && !busy;
 
   const steps: Step[] = [
     {
@@ -593,6 +633,7 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
               onRetry={handleGenerate}
               onViewTeasers={() => setStep("teasers")}
               onStartOver={handleReset}
+              onCancel={handleCancelRun}
             />
           ) : view !== "settings" ? (
             <button

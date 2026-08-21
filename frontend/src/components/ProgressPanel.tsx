@@ -17,7 +17,11 @@ interface Props {
 
 export default function ProgressPanel({ job }: Props) {
   const failed = job.status === "failed";
+  const cancelled = job.status === "cancelled";
   const done = job.status === "completed";
+  // Cancelled runs stop the stage list where they were, so the bar shows how
+  // far it got rather than snapping to full like a failure does.
+  const stopped = failed || cancelled;
   const currentIndex = STAGES.indexOf(job.status);
 
   return (
@@ -29,10 +33,16 @@ export default function ProgressPanel({ job }: Props) {
         <h2>Processing</h2>
         <div className="card-header-actions">
           <span
-            className={`status${failed ? " status-failed" : done ? "" : " status-pending"}`}
+            className={`status${failed ? " status-failed" : done || cancelled ? "" : " status-pending"}`}
           >
             <span className="status-dot" />
-            {failed ? "Failed" : done ? "Completed" : "Running"}
+            {failed
+              ? "Failed"
+              : cancelled
+                ? "Cancelled"
+                : done
+                  ? "Completed"
+                  : "Running"}
           </span>
         </div>
       </div>
@@ -56,8 +66,8 @@ export default function ProgressPanel({ job }: Props) {
       <ol className="stages">
         {STAGES.filter((stage) => stage !== "completed").map((stage) => {
           const index = STAGES.indexOf(stage);
-          const complete = !failed && currentIndex > index;
-          const active = !failed && currentIndex === index;
+          const complete = !stopped && currentIndex > index;
+          const active = !stopped && currentIndex === index;
           return (
             <li
               key={stage}

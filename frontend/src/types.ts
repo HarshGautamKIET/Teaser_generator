@@ -16,7 +16,8 @@ export type JobStatus =
   | "ranking"
   | "generating"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface VideoUploadResponse {
   video_id: string;
@@ -214,4 +215,5 @@ export const STATUS_LABELS: Record<JobStatus, string> = {
   generating: "Generating teasers",
   completed: "Completed",
   failed: "Failed",
+  cancelled: "Cancelled",
 };

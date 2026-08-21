@@ -176,6 +176,15 @@ export function getJob(jobId: string): Promise<JobResponse> {
   return request<JobResponse>(`/jobs/${jobId}`);
 }
 
+/** Stop a running job.
+ *
+ *  The server marks the run cancelled immediately, but an analysis call already
+ *  in flight has to return before the worker notices, so the job may report
+ *  `cancelled` a moment before it actually stops working. */
+export function cancelJob(jobId: string): Promise<JobResponse> {
+  return request<JobResponse>(`/jobs/${jobId}/cancel`, { method: "POST" });
+}
+
 /** Teasers from one run. Without `jobId` the backend answers with the latest
  *  completed run for that video, which is what the generate flow wants. */
 export function getTeasers(

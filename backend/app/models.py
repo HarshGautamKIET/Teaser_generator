@@ -97,8 +97,12 @@ class JobStatus:
     GENERATING = "generating"
     COMPLETED = "completed"
     FAILED = "failed"
+    # Stopped by its owner. Distinct from `failed` on purpose: nothing went
+    # wrong, so it must not be counted as a failure or offered a retry that
+    # implies one.
+    CANCELLED = "cancelled"
 
-    TERMINAL = (COMPLETED, FAILED)
+    TERMINAL = (COMPLETED, FAILED, CANCELLED)
 
 
 class Job(Base):

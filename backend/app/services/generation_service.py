@@ -23,7 +23,7 @@ from app.models import Job, JobStatus, Teaser, Video, VideoStatus, new_id
 from app.services import media_service, video_service
 from app.services.analysis_service import Candidate, validate_candidates
 from app.services.ranking_service import affordable_gap, select_top
-from app.storage import UPLOADS, Storage
+from app.storage import GENERATED, UPLOADS, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,19 @@ logger = logging.getLogger(__name__)
 class VideoNotReadyError(AppError):
     def __init__(self, message: str) -> None:
         super().__init__("VIDEO_NOT_READY", message, 409)
+
+
+class JobNotCancellableError(AppError):
+    def __init__(self, message: str) -> None:
+        super().__init__("JOB_NOT_CANCELLABLE", message, 409)
+
+
+class JobCancelled(Exception):
+    """Raised inside the pipeline when the owner stopped the run.
+
+    Not an AppError: nothing failed, and it never reaches a client. It exists to
+    unwind the pipeline from wherever it happens to be.
+    """
 
 
 # ----------------------------------------------------------------------
@@ -93,11 +106,64 @@ def get_job(db: Session, job_id: str) -> Job:
     return job
 
 
-def _advance(db: Session, job: Job, status: str, progress: int, message: str) -> None:
-    job.status = status
-    job.progress = progress
-    job.message = message
+def cancel_job(db: Session, job_id: str) -> Job:
+    """Stop a run at its owner's request.
+
+    Only the terminal state is written here, not the teardown: the worker owns
+    its own unwinding and notices at the next stage boundary. Marking the row
+    immediately is what makes the button honest -- the caller sees the run stop
+    even though a Gemini call already in flight has to return first.
+
+    A job that has already finished is rejected rather than quietly accepted.
+    Reporting success while changing nothing is worse than a clear 409, and for
+    a completed run it would imply its teasers had been thrown away.
+    """
+    job = get_job(db, job_id)
+    if job.status in JobStatus.TERMINAL:
+        raise JobNotCancellableError(
+            f"This run has already finished (status: {job.status})."
+        )
+
+    job.status = JobStatus.CANCELLED
+    # Progress is left where it stopped; overwriting it would hide how far the
+    # run got before it was stopped.
+    job.message = "Cancelled"
+    job.completed_at = datetime.now(timezone.utc)
     db.commit()
+    db.refresh(job)
+    logger.info("Job %s cancelled at %d%%", job.id, job.progress)
+    return job
+
+
+def _advance(db: Session, job: Job, status: str, progress: int, message: str) -> None:
+    """Move the job to its next stage, or abort if it has been cancelled.
+
+    Written as a conditional UPDATE rather than three attribute assignments
+    because the cancel endpoint writes from a different session. A plain
+    assignment would overwrite `cancelled` with the next stage's status, and the
+    cancellation would be lost in the window between two stages -- the run would
+    carry on to completion having acknowledged a stop it then ignored.
+
+    Guarding inside the same statement that does the write closes that window:
+    either the row was not cancelled and this advances it, or it was and zero
+    rows match.
+    """
+    applied = (
+        db.query(Job)
+        .filter(Job.id == job.id, Job.status != JobStatus.CANCELLED)
+        .update(
+            {"status": status, "progress": progress, "message": message},
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    # The UPDATE bypassed the identity map, so the in-session object still holds
+    # the previous stage either way.
+    db.refresh(job)
+
+    if not applied:
+        raise JobCancelled
+
     logger.info("Job %s -> %s (%d%%) %s", job.id, status, progress, message)
 
 
@@ -160,6 +226,19 @@ def _analyze(
     )
 
 
+def _discard_media(storage: Storage, keys: list[str]) -> None:
+    """Delete clips cut for a run that will never be recorded.
+
+    Best-effort: a file that cannot be removed is worth a log line, never worth
+    turning a clean cancellation into an error.
+    """
+    for key in keys:
+        try:
+            storage.delete(GENERATED, key)
+        except OSError:
+            logger.warning("Could not remove abandoned clip %s", key, exc_info=True)
+
+
 def _cut_teasers(
     db: Session,
     storage: Storage,
@@ -174,11 +253,18 @@ def _cut_teasers(
     total = len(selected)
 
     for index, candidate in enumerate(selected, start=1):
-        _advance(
-            db, job, JobStatus.GENERATING,
-            70 + int(25 * (index - 1) / max(total, 1)),
-            f"Generating teaser {index} of {total}",
-        )
+        try:
+            _advance(
+                db, job, JobStatus.GENERATING,
+                70 + int(25 * (index - 1) / max(total, 1)),
+                f"Generating teaser {index} of {total}",
+            )
+        except JobCancelled:
+            # Clips already cut are about to be abandoned -- the rows are only
+            # added after the loop, so nothing references these files and
+            # leaving them would leak a few hundred MB per cancelled run.
+            _discard_media(storage, [t.storage_key for t in teasers])
+            raise
 
         teaser_id = new_id()
         try:
@@ -294,6 +380,10 @@ def run_job(
         db.commit()
         logger.info("Job %s completed with %d teaser(s)", job.id, len(teasers))
 
+    except JobCancelled:
+        # The endpoint already wrote the terminal state; the worker's only job
+        # here is to stop touching the row and let the stack unwind.
+        logger.info("Job %s stopped at the owner's request", job.id)
     except AIError as exc:
         # AI failure is reported honestly, never replaced with fabricated results.
         _fail(db, job, "AI_ANALYSIS_FAILED", str(exc))

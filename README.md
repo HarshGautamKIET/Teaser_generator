@@ -187,13 +187,20 @@ Base path `/api`. Every endpoint except `/api/health` requires a `Bearer` access
 | GET | `/api/videos/{video_id}/teasers` | Teasers for a video, latest run or `?job_id=` |
 | GET | `/api/jobs` | Every run, optionally `?video_id=` |
 | GET | `/api/jobs/{job_id}` | Poll processing state |
+| POST | `/api/jobs/{job_id}/cancel` | Stop a running job |
 | GET | `/api/teasers` | Every clip the caller owns, across all runs |
 | GET | `/api/teasers/{teaser_id}/media` | The MP4 itself, ownership-checked |
 | GET | `/api/health` | Health check |
 
 Video states: `fetching → uploaded → ready \| failed`
 
-Job states: `queued → validating → analyzing → ranking → generating → completed \| failed`
+Job states: `queued → validating → analyzing → ranking → generating → completed \| failed \| cancelled`
+
+Cancellation is cooperative: the run is marked `cancelled` immediately, and the worker stops
+at its next stage boundary. An analysis call already in flight has to return first, so a
+cancel during analysis takes effect before any clip is cut rather than instantly. Clips
+already rendered for a cancelled run are deleted — their rows are only written once the
+whole set succeeds, so nothing would reference the files.
 
 Errors share one envelope: `{"error": {"code": ..., "message": ...}}`.
 

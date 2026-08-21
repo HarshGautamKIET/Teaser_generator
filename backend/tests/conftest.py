@@ -126,9 +126,15 @@ def pytest_collection_modifyitems(config, items):
     A module-level `pytestmark` in conftest.py only marks tests defined in
     conftest.py itself, so it would leave every other file to fail with a raw
     connection error instead.
+
+    On CI this becomes fatal rather than a skip. A developer without the stack
+    running wants an explanation and their prompt back; an automated run that
+    skips all of it and reports success is a green tick over nothing.
     """
     if _DB_PROBLEM is None:
         return
+    if os.environ.get("CI"):
+        raise pytest.UsageError(f"Database not usable on CI: {_DB_PROBLEM}")
     skip = pytest.mark.skip(reason=_DB_PROBLEM)
     for item in items:
         item.add_marker(skip)

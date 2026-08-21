@@ -386,7 +386,11 @@ function Summary({ jobs, teasers, days, onDaysChange, onOpenRun }: SummaryProps)
                       title={job.error_code ?? undefined}
                     >
                       <span className="status-dot" />
-                      {job.status === "failed" ? "Failed" : "Success"}
+                      {job.status === "failed"
+                        ? "Failed"
+                        : job.status === "cancelled"
+                          ? "Cancelled"
+                          : "Success"}
                     </span>
                   </span>
                 </button>

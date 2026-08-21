@@ -44,7 +44,9 @@ export default function RunDetailScreen({ job, onBack }: Props) {
             </span>
             <span
               className={`status${job.status === "failed" ? " status-failed" : ""}${
-                job.status !== "failed" && job.status !== "completed"
+                job.status !== "failed" &&
+                job.status !== "completed" &&
+                job.status !== "cancelled"
                   ? " status-pending"
                   : ""
               }`}
@@ -108,7 +110,9 @@ export default function RunDetailScreen({ job, onBack }: Props) {
               <p className="empty-note">
                 {job.status === "failed"
                   ? "This run produced no clips."
-                  : "No clips are recorded against this run yet."}
+                  : job.status === "cancelled"
+                    ? "This run was cancelled before it produced any clips."
+                    : "No clips are recorded against this run yet."}
               </p>
             </section>
           ) : (

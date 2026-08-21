@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch makes the first run's result irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+
+    services:
+      # Plain Postgres, not the Supabase stack: see .github/ci/bootstrap.sql for
+      # what stands in for it and why.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # The suite reads these directly; there is no .env file in CI.
+      POSTGRES_PASSWORD: postgres
+      APP_DB_PASSWORD: ci-app-password
+      # No Supavisor in front of Postgres here, so the role needs no tenant
+      # suffix -- unlike the local setup, where port 5432 is the pooler.
+      TEST_DATABASE_URL: postgresql+psycopg://teaser_app:ci-app-password@localhost:5432/postgres
+      TEST_ADMIN_DSN: postgresql://postgres:postgres@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install FFmpeg and the Postgres client
+        # FFmpeg is a hard dependency of the media pipeline, and the suite cuts
+        # real clips from a generated fixture video rather than mocking it.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg postgresql-client
+
+      - name: Apply the schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -euo pipefail
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -f .github/ci/bootstrap.sql
+          # Filename order, same as the migrate service in docker-compose.yml.
+          for file in backend/migrations/*.sql; do
+            echo "applying $(basename "$file")"
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 \
+              -v app_password="$APP_DB_PASSWORD" -f "$file"
+          done
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run tests
+        working-directory: backend
+        # conftest turns its "database unreachable, skipping" behaviour into a
+        # hard failure when CI is set (GitHub sets it). Locally a skip with an
+        # explanation is the right call; here it would be a green tick over a
+        # suite that never ran.
+        run: python -m pytest -ra
+
+  frontend:
+    name: Frontend typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build
+        # Catches what tsc alone does not: the @ds alias into design-system, and
+        # anything that only breaks when Vite actually bundles.
+        working-directory: frontend
+        env:
+          VITE_SUPABASE_PUBLISHABLE_KEY: build-time-placeholder
+        run: npm run build

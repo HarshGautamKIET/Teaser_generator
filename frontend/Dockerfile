@@ -43,3 +43,7 @@ RUN printf 'server {\n\
 }\n' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
+
+# busybox wget ships with the alpine image, so this costs nothing to add.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1

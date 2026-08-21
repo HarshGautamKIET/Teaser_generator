@@ -26,4 +26,10 @@ RUN mkdir -p /data/uploads /data/generated
 
 EXPOSE 8000
 
+# urllib rather than curl: the slim image has no curl, and adding one purely to
+# poll an endpoint is a package and a CVE surface for something Python already
+# does. urlopen raises on a 503, which is exactly the non-zero exit Docker wants.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
