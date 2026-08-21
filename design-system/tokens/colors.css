@@ -1,0 +1,74 @@
+:root{
+  /* ---- Brand green (sampled from the reference render) ---- */
+  --green-950:#04351f;
+  --green-900:#064e33;
+  --green-800:#097043;   /* promo card gradient end */
+  --green-700:#05784a;   /* primary pressed */
+  --green-600:#059055;   /* PRIMARY — Send Money, promo card, active icon */
+  --green-500:#12a968;
+  --green-400:#4dd985;   /* success dot */
+  --green-300:#8fdcbe;
+  --green-200:#adebd2;   /* chart bar top */
+  --green-100:#d9f0e6;
+  --green-50:#e3f4ec;    /* pale chart bar, icon tiles */
+  --green-25:#eff8f3;
+
+  /* ---- Neutrals ---- */
+  --ink-900:#15161b;     /* dark button / logo-adjacent ink */
+  --ink-800:#1d1e22;     /* headings */
+  --ink-700:#2f3137;
+  --ink-500:#6e7178;     /* body / muted copy */
+  --ink-400:#9a9ca3;     /* placeholders, sidebar rest icons */
+  --ink-300:#c2c4c8;
+  --ink-200:#e6e7e9;     /* hairline borders */
+  --ink-100:#f0f0f0;     /* secondary button fill */
+  --ink-75:#f6f6f8;      /* wallet tiles */
+  --ink-50:#f7f7f7;      /* search field, table header */
+  --white:#ffffff;
+  --page:#eaeaea;        /* desk / canvas behind the app shell */
+
+  /* ---- Semantic ---- */
+  --success-600:#059055;
+  --success-500:#4dd985;
+  --success-50:#e3f4ec;
+  --danger-600:#e0453a;
+  --danger-50:#fdecea;
+  --amber-600:#e0a03c;
+  --amber-50:#fdf3e5;
+  --info-600:#3b7ff5;
+  --info-50:#ecf2fe;
+
+  /* ---- Semantic aliases (use these in components) ---- */
+  --text-heading:var(--ink-800);
+  --text-body:var(--ink-500);
+  --text-strong:var(--ink-900);
+  --text-muted:var(--ink-400);
+  --text-on-brand:var(--white);
+  --text-brand:var(--green-600);
+  --text-positive:var(--green-600);
+  --text-negative:var(--danger-600);
+  --text-warning:var(--amber-600);
+
+  --surface-page:var(--page);
+  --surface-shell:var(--white);
+  --surface-card:var(--white);
+  --surface-sunken:var(--ink-50);
+  --surface-tile:var(--ink-75);
+  --surface-brand:var(--green-600);
+  --surface-brand-soft:var(--green-50);
+  --surface-dark:var(--ink-900);
+
+  --border-hairline:var(--ink-200);
+  --border-strong:var(--ink-300);
+  --border-brand:var(--green-200);
+
+  --nav-item-active-bg:var(--green-50);
+  --nav-item-active-text:var(--green-600);
+  --nav-item-rest-text:var(--ink-500);
+
+  --chart-bar:var(--green-50);
+  --chart-bar-active:var(--green-600);
+  --chart-grid:var(--ink-200);
+
+  --focus-ring:color-mix(in oklch,var(--green-600) 35%,transparent);
+}

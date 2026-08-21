@@ -1,0 +1,23 @@
+:root{
+  --space-1:4px;
+  --space-2:6px;
+  --space-3:8px;
+  --space-4:10px;
+  --space-5:12px;
+  --space-6:14px;
+  --space-7:16px;
+  --space-8:20px;
+  --space-9:24px;
+  --space-10:28px;
+  --space-11:32px;
+  --space-12:40px;
+
+  --card-pad:18px;         /* interior padding of every white card */
+  --card-gap:16px;         /* gutter between cards in the dashboard grid */
+  --shell-pad:14px;        /* white shell inset from the page edge */
+  --sidebar-width:196px;
+  --control-h-sm:32px;
+  --control-h-md:38px;
+  --control-h-lg:44px;     /* Send Money / Request Money */
+  --icon-tile:28px;
+}

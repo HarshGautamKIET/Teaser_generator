@@ -1,0 +1,11 @@
+:root{
+  /* Elevation is whisper-quiet: cards read as flat white on grey.
+     Only the shell and floating overlays get a real shadow. */
+  --shadow-none:none;
+  --shadow-card:0 1px 2px rgba(21,22,27,.04);
+  --shadow-raised:0 2px 8px rgba(21,22,27,.06);
+  --shadow-shell:0 12px 40px rgba(21,22,27,.08);
+  --shadow-overlay:0 8px 24px rgba(21,22,27,.12);
+  --shadow-brand:0 6px 16px rgba(5,144,85,.24);
+  --inset-hairline:inset 0 0 0 1px var(--border-hairline);
+}

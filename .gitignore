@@ -1,0 +1,78 @@
+# ---------- Secrets ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+service-account*.json
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- Node / Frontend ----------
+node_modules/
+dist/
+build/
+.vite/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- Database ----------
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ---------- Media (source videos & generated teasers) ----------
+# Anchored to the repo root: unanchored patterns also matched the backend
+# source packages backend/app/media/ and backend/app/storage/.
+/uploads/
+/generated/
+/media/
+/storage/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.srt
+*.vtt
+*.ass
+!**/.gitkeep
+
+# ---------- Logs ----------
+*.log
+logs/
+
+# ---------- OS / Editor ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+docs/
+
+# ---------- Self-hosted Supabase (docker/supabase) ----------
+# Vendored from self-hosted/v0.8.0. The stack itself is committed; its
+# generated secrets, database files, and version stamp are not.
+docker/supabase/volumes/db/data/
+docker/supabase/volumes/storage/
+docker/supabase/.supabase-version
+
+
+.playwright-mcp
+.claude
+

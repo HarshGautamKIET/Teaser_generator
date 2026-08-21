@@ -1,0 +1,9 @@
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font-family:var(--font-sans);background:var(--surface-page);color:var(--text-body);font-size:var(--text-md);line-height:var(--leading-normal);-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;color:var(--text-heading);font-weight:var(--weight-bold);letter-spacing:var(--tracking-tight);line-height:var(--leading-tight)}
+p{margin:0}
+a{color:var(--text-brand);text-decoration:none;transition:var(--transition-control)}
+a:hover{color:var(--green-700);text-decoration:underline}
+button{font-family:inherit}
+:focus-visible{outline:2px solid var(--green-600);outline-offset:2px}
+.o-num{font-variant-numeric:tabular-nums lining-nums;font-feature-settings:var(--font-numeric-features)}

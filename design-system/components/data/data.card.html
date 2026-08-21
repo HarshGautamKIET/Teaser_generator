@@ -1,0 +1,42 @@
+<!-- @dsCard group="Components" viewport="700x430" name="Data Display" subtitle="Stat cards, wallet tiles, goal rows, bar chart, table" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.474.0/dist/umd/lucide.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{background:var(--white);padding:18px;display:flex;align-items:center}#r{width:100%}</style></head><body style="align-items:flex-start"><div id="r"></div>
+<script type="text/babel">
+const { StatCard, WalletTile, GoalRow, BarChart, DataTable, StatusPill, IconTile, IconButton, Icon, Card, CardHeader, Select } = window.OripioDesignSystem_c89f4b;
+const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const vals=[19,27,31,22,29,11,13,40,24,19,10,23];
+const more=<IconButton label="More" variant="ghost" size={26}><Icon name="more-horizontal" size={16}/></IconButton>;
+function Demo(){return (<div style={{display:'flex',flexDirection:'column',gap:16,background:'var(--surface-page)',padding:14,borderRadius:'var(--radius-lg)'}}>
+ <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+  <StatCard icon={<Icon name="badge-dollar-sign" size={15}/>} title="Total Expenses" value="$9,845.20" delta="-2.1%" deltaTone="negative" deltaArrow="down" actions={more}/>
+  <StatCard icon={<Icon name="piggy-bank" size={15}/>} title="Total Savings" value="$18,420.75" delta="+4.5%" actions={more}/>
+ </div>
+ <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+  <Card><CardHeader title="My Wallet" style={{marginBottom:10}}/>
+   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+    <WalletTile flag={<img src="../../assets/flag-usd.png" width="16" alt=""/>} code="USD" amount="$22,678.00"/>
+    <WalletTile flag={<img src="../../assets/flag-gbp.png" width="16" alt=""/>} code="GBP" amount="£15,000.00" status="inactive"/>
+   </div></Card>
+  <Card><CardHeader icon={<Icon name="lightbulb" size={15}/>} title="My Savings Plan" actions={more} style={{marginBottom:10}}/>
+   <div style={{display:'flex',flexDirection:'column',gap:10}}>
+    <GoalRow icon={<Icon name="target" size={14}/>} title="Investment Goal" current="$15,600" target="$25,000" percent={62}/>
+    <GoalRow icon={<Icon name="umbrella" size={14}/>} title="Emergency Fund" current="$4,200" target="$10,000" percent={42} tone="amber"/>
+   </div></Card>
+ </div>
+ <Card><CardHeader icon={<Icon name="chart-no-axes-column" size={15}/>} title="Overview" actions={<><span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:'var(--text-xs)',fontWeight:600,color:'var(--text-heading)'}}><span style={{width:5,height:11,borderRadius:99,background:'var(--green-600)'}}/>Earnings</span><Select value="This Year" options={['This Year','This Month']} variant="outline"/>{more}</>}/>
+  <BarChart data={months.map((m,i)=>({label:m,value:vals[i]}))} activeIndex={7} tooltip={{label:'Earnings',value:'$84,849.93'}}/>
+ </Card>
+ <Card><CardHeader icon={<Icon name="arrow-up-down" size={15}/>} title="Recent Transaction" actions={<span style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 11px',borderRadius:99,border:'1px solid var(--border-hairline)',fontSize:'var(--text-xs)',fontWeight:600,color:'var(--text-heading)'}}>Filter <Icon name="list-filter" size={13}/></span>}/>
+  <DataTable columns={[{key:'activity',label:'Activity',width:'1.7fr'},{key:'date',label:'Date',muted:true,numeric:true},{key:'price',label:'Price',numeric:true},{key:'status',label:'Status'},{key:'more',label:'',width:'34px',align:'right'}]}
+   rows={[{activity:<><IconTile tone="neutral" size={22}><Icon name="smartphone" size={12}/></IconTile>Mobile App Purchase</>,date:'Wed, 12 Jun 2026',price:'$806.50',status:<StatusPill>Success</StatusPill>,more:more},
+          {activity:<><IconTile tone="neutral" size={22}><Icon name="file-text" size={12}/></IconTile>Software License</>,date:'Tue, 11 Jun 2026',price:'$102.99',status:<StatusPill>Success</StatusPill>,more:more},
+          {activity:<><IconTile tone="neutral" size={22}><Icon name="shopping-basket" size={12}/></IconTile>Grocery Purchase</>,date:'Sun, 09 Jun 2026',price:'$2,500.00',status:<StatusPill>Success</StatusPill>,more:more}]}/>
+ </Card>
+</div>);}
+ReactDOM.createRoot(document.getElementById('r')).render(<Demo/>);
+</script></body></html>

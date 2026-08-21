@@ -1,0 +1,32 @@
+# --- Web framework (ADR-003) ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9        # required by FastAPI for multipart video upload (FR-001)
+
+# --- Configuration (NFR: env-based config) ---
+pydantic-settings>=2.4.0
+python-dotenv>=1.0.1
+
+# --- Persistence (ADR-007) ---
+SQLAlchemy>=2.0.30
+psycopg[binary]>=3.3,<4         # Postgres driver for Supabase (replaces SQLite)
+
+# --- Auth ---
+# Verifies Supabase access tokens locally against the published JWKS. The
+# [crypto] extra pulls in `cryptography`, required for the ES256 keys that
+# self-hosted Supabase signs with.
+PyJWT[crypto]>=2.13,<3
+
+# --- AI (ADR-004) ---
+google-genai>=1.0.0
+
+# --- URL ingestion ---
+# Resolves a page URL to a downloadable stream. Pinned to a floor rather than an
+# exact version on purpose: extractors break whenever a site changes its player,
+# so an old pin fails closed on real URLs. Wrapped entirely by
+# app/services/downloader.py -- nothing else imports it.
+yt-dlp>=2026.1.29
+
+# --- Tests (rule 14) ---
+pytest>=8.0.0
+httpx>=0.27.0                  # FastAPI TestClient dependency

@@ -1,0 +1,26 @@
+:root{
+  /* Sizes — the reference is a 1440-ish desktop app; ladder is compact. */
+  --text-3xl:30px;   /* page greeting: "Welcome back …" */
+  --text-2xl:26px;   /* balance figure */
+  --text-xl:20px;    /* stat card figure (secondary cards) */
+  --text-lg:17px;    /* card titles */
+  --text-md:15px;    /* nav items, buttons, body */
+  --text-sm:13px;    /* table cells, meta */
+  --text-xs:12px;    /* labels, deltas, statuses */
+  --text-2xs:11px;   /* sidebar section labels, axis ticks */
+
+  --leading-tight:1.15;
+  --leading-snug:1.3;
+  --leading-normal:1.5;
+  --leading-relaxed:1.6;
+
+  --weight-regular:400;
+  --weight-medium:500;
+  --weight-semibold:600;
+  --weight-bold:700;
+  --weight-extrabold:800;
+
+  --tracking-tight:-0.02em;   /* headings and balances */
+  --tracking-normal:0;
+  --tracking-label:0.08em;    /* uppercase sidebar section labels */
+}

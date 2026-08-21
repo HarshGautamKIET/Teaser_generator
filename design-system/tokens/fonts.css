@@ -1,0 +1,16 @@
+/* Oripio type — FONT SUBSTITUTION -------------------------------------------
+   The source for this system is a single reference render; no font binaries
+   were provided. The wordmark and UI are a geometric humanist sans with a
+   circular 'O', single-storey-feeling 'a' and tall x-height. Closest free
+   match: Plus Jakarta Sans (Google Fonts). Swap in the real family here if
+   you have the licensed files, and keep the token names identical. */
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap");
+
+:root{
+  --font-sans:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --font-display:var(--font-sans);
+  --font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* numerals in balances and tables are tabular so columns align */
+  --font-numeric-features:"tnum" 1,"lnum" 1;
+}

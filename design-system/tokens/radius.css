@@ -1,0 +1,8 @@
+:root{
+  --radius-xs:6px;
+  --radius-sm:8px;      /* icon tiles, small chips */
+  --radius-md:12px;     /* wallet tiles, inputs */
+  --radius-lg:16px;     /* cards */
+  --radius-xl:20px;     /* app shell, promo card */
+  --radius-pill:999px;  /* buttons, badges, statuses, search field */
+}

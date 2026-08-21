@@ -1,0 +1,27 @@
+{
+  "name": "teaser-generator-frontend",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "ISC",
+  "description": "Frontend for the AI Video Teaser Generator",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
+    "lucide": "^1.33.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.3"
+  }
+}
