@@ -27,4 +27,9 @@ def get_ai_provider() -> AIProvider:
 
     keyring = build_keyring(settings.gemini_api_key, settings.gemini_api_keys)
     logger.info("Gemini configured with %d API key(s)", len(keyring))
-    return GeminiProvider(keyring=keyring, model=settings.gemini_model)
+    return GeminiProvider(
+        keyring=keyring,
+        model=settings.gemini_model,
+        request_timeout_seconds=settings.gemini_request_timeout_seconds,
+        generate_timeout_seconds=settings.gemini_generate_timeout_seconds,
+    )

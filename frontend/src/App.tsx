@@ -7,15 +7,24 @@ import {
   getTeasers,
   getVideo,
   ingestFromUrl,
+  listJobs,
+  listTeasers,
+  listVideos,
   startGeneration,
   uploadVideo,
 } from "./api";
 import { toFailure, type Failure } from "./async";
-import AppShell, { type View } from "./components/AppShell";
+import AppShell, {
+  useViewRoute,
+  type NavCounts,
+  type View,
+} from "./components/AppShell";
 import DashboardScreen from "./components/DashboardScreen";
 import LibraryScreen from "./components/LibraryScreen";
 import LoginScreen from "./components/LoginScreen";
+import NarrativePanel from "./components/NarrativePanel";
 import OptionsPanel from "./components/OptionsPanel";
+import PreviewCard from "./components/PreviewCard";
 import ProgressPanel from "./components/ProgressPanel";
 import RunDetailScreen from "./components/RunDetailScreen";
 import RunsScreen from "./components/RunsScreen";
@@ -32,8 +41,10 @@ import {
 import { supabase } from "./supabase";
 import Icon from "./ui/Icon";
 import {
+  DEFAULT_RECORDING_TYPE,
   type JobResponse,
   type JobSummary,
+  type RecordingType,
   type Teaser,
   type VideoResponse,
   type VideoSummary,
@@ -250,8 +261,10 @@ interface TeaserAppProps {
 }
 
 function TeaserApp({ userId, email }: TeaserAppProps) {
-  const [view, setView] = useState<View>("generate");
+  const [view, setView] = useViewRoute();
   const [step, setStep] = useState<StepId>("source");
+
+  const [counts, setCounts] = useState<NavCounts>({});
 
   const [video, setVideo] = useState<VideoResponse | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -267,8 +280,15 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
   const [audience, setAudience] = useState(preferences.audience);
   const [style, setStyle] = useState(preferences.style);
   const [aspectRatio, setAspectRatio] = useState(preferences.aspectRatio);
-  // Per-run only, deliberately not a saved preference: a steer like "focus on
-  // the pricing discussion" is about one video, not about every future one.
+  // Per-run only, deliberately not a saved preference: what kind of recording
+  // this is describes the video on screen, not a standing choice. Someone who
+  // uploads a webinar today and a demo tomorrow would have to correct a
+  // remembered value both times.
+  const [recordingType, setRecordingType] = useState<RecordingType>(
+    DEFAULT_RECORDING_TYPE,
+  );
+  // Per-run only for the same reason: a steer like "focus on the pricing
+  // discussion" is about one video, not about every future one.
   const [customPrompt, setCustomPrompt] = useState("");
 
   const [job, setJob] = useState<JobResponse | null>(null);
@@ -408,6 +428,7 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
         teaser_count: preferences.teaserCount,
         clip_max_seconds: preferences.clipMaxSeconds,
         aspect_ratio: aspectRatio,
+        recording_type: recordingType,
         custom_prompt: customPrompt.trim() || undefined,
       });
       const initial = await getJob(started.job_id);
@@ -511,6 +532,7 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
     setAudience(preferences.audience);
     setStyle(preferences.style);
     setAspectRatio(preferences.aspectRatio);
+    setRecordingType(DEFAULT_RECORDING_TYPE);
     setCustomPrompt("");
     setStep("options");
     setView("generate");
@@ -535,6 +557,7 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
         // The original run's shape and direction, so a retry reproduces the run
         // it is retrying rather than a differently-steered one.
         aspect_ratio: (run.aspect_ratio as typeof aspectRatio) ?? aspectRatio,
+        recording_type: (run.recording_type as RecordingType) ?? undefined,
         custom_prompt: run.custom_prompt ?? undefined,
       });
     } catch (error) {
@@ -543,12 +566,13 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
     }
   };
 
-  const changeView = (next: View) => {
-    // Leaving Runs closes the detail page, so coming back lands on the list
-    // rather than on a run the reader has since stopped caring about.
-    if (next !== "runs") setOpenRun(null);
-    setView(next);
-  };
+  // Leaving Runs closes the detail page, so coming back lands on the list
+  // rather than on a run the reader has since stopped caring about. Keyed on
+  // the view rather than done in the click handler because Back and Forward
+  // change the view too, and those never pass through a handler of ours.
+  useEffect(() => {
+    if (view !== "runs") setOpenRun(null);
+  }, [view]);
 
   // ------------------------------------------------------------------
   const jobFinished =
@@ -559,6 +583,32 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
 
   const busy = uploading || fetching || (job !== null && !jobFinished);
   const canGenerate = video !== null && !busy;
+
+  /** The badge numbers on the sidebar rows.
+   *
+   *  There is no aggregate endpoint, so this is the three list calls the
+   *  Videos, Library and Runs screens each make on their own. Refetched
+   *  whenever this tab does something that moves those totals — a new source,
+   *  a new run, or a run reaching its end — rather than on every view change. */
+  useEffect(() => {
+    let live = true;
+    Promise.all([listVideos(), listTeasers(), listJobs()])
+      .then(([videos, library, runs]) => {
+        if (!live) return;
+        setCounts({
+          videos: videos.videos.length,
+          library: library.teasers.length,
+          runs: runs.jobs.length,
+        });
+      })
+      .catch(() => {
+        // Counts decorate the nav. Failing to load them is not worth an error
+        // banner over the work the reader is actually doing.
+      });
+    return () => {
+      live = false;
+    };
+  }, [video?.video_id, job?.job_id, jobFinished]);
 
   const steps: Step[] = [
     {
@@ -607,7 +657,8 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
   return (
     <AppShell
       view={view}
-      onViewChange={changeView}
+      onViewChange={setView}
+      counts={counts}
       video={video}
       onReset={handleReset}
       canReset={!busy && (video !== null || job !== null || failure !== null)}
@@ -736,16 +787,30 @@ function TeaserApp({ userId, email }: TeaserAppProps) {
                 audience={audience}
                 style={style}
                 aspectRatio={aspectRatio}
+                recordingType={recordingType}
                 customPrompt={customPrompt}
                 onAudienceChange={setAudience}
                 onStyleChange={setStyle}
                 onAspectRatioChange={setAspectRatio}
+                onRecordingTypeChange={setRecordingType}
                 onCustomPromptChange={setCustomPrompt}
                 disabled={busy}
               />
             )}
 
             {step === "processing" && job && <ProgressPanel job={job} />}
+
+            {step === "teasers" && job && (
+              <NarrativePanel
+                summary={job.summary}
+                chapters={job.chapters}
+                keywords={job.keywords}
+              />
+            )}
+
+            {/* Above the clip grid: it is the run's single assembled output,
+                and the grid is the raw material it was built from. */}
+            {step === "teasers" && job && <PreviewCard job={job} />}
 
             {step === "teasers" && teasers.length > 0 && (
               <section className="card" id="teasers">

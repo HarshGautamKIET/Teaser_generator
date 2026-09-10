@@ -15,7 +15,12 @@ from app.schemas import (
     VideoResponse,
     VideoUploadResponse,
 )
-from app.services import generation_service, ingest_service, video_service
+from app.services import (
+    feedback_service,
+    generation_service,
+    ingest_service,
+    video_service,
+)
 from app.services.job_runner import fetch_video_in_background, run_job_in_background
 from app.storage import Storage, get_storage
 
@@ -83,6 +88,7 @@ async def generate_teasers(
         teaser_count=body.teaser_count,
         clip_max_seconds=body.clip_max_seconds,
         aspect_ratio=body.aspect_ratio,
+        recording_type=body.recording_type,
         custom_prompt=body.custom_prompt,
     )
     # The worker opens its own session, so it needs the owner passed explicitly.
@@ -100,6 +106,7 @@ async def list_teasers(
 
     Defaults to the latest completed run; pass `job_id` to select a specific one.
     """
+    teasers = generation_service.list_teasers(db, video_id, job_id)
     return TeaserListResponse.from_models(
-        generation_service.list_teasers(db, video_id, job_id)
+        teasers, feedback_service.verdicts_for(db, [t.id for t in teasers])
     )

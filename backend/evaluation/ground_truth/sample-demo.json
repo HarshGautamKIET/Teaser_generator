@@ -1,0 +1,11 @@
+{
+  "asset_id": "sample-demo",
+  "duration_seconds": 900.0,
+  "origin": "annotation",
+  "note": "SYNTHETIC. Present so the corpus is not a single asset the pipeline happens to score perfectly on -- a one-row average moves entirely with that row.",
+  "spans": [
+    { "start": 120.0, "end": 165.0, "why": "the import finishing, with the row count on screen", "strength": 3 },
+    { "start": 380.0, "end": 425.0, "why": "the rule editor producing a live preview", "strength": 2 },
+    { "start": 700.0, "end": 745.0, "why": "the dashboard populated with the result", "strength": 3 }
+  ]
+}

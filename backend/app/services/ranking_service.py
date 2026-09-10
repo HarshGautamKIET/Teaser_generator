@@ -7,6 +7,7 @@ per-dimension scores; the weights and the selection rules live here (FR-010).
 import logging
 
 from app.services.analysis_service import Candidate
+from app.services.pipeline_report import CandidateReport, DropReason
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,10 @@ def affordable_gap(
 
 
 def select_top(
-    candidates: list[Candidate], count: int, min_gap_seconds: float = 0.0
+    candidates: list[Candidate],
+    count: int,
+    min_gap_seconds: float = 0.0,
+    report: CandidateReport | None = None,
 ) -> list[Candidate]:
     """Take the best `count` candidates, keeping them apart from each other.
 
@@ -94,12 +98,25 @@ def select_top(
     separate files.
 
     A gap of 0 reduces to the previous non-overlap behaviour.
+
+    `report` is tallied as a side effect when supplied, for the same reason
+    validate_candidates takes one. Losing here is not a failure -- an outranked
+    moment was perfectly valid -- but it belongs in the same tally, because "why
+    did I only get one clip" has one answer shape whether the moment was
+    rejected or merely beaten.
     """
     if count <= 0:
         return []
 
     selected: list[Candidate] = []
-    for candidate in rank_candidates(candidates):
+    ranked = rank_candidates(candidates)
+    # Read before the loop, so a report reused across calls (the ablation runner
+    # scores several selections against one tally) counts this call's rejections
+    # rather than every call's.
+    too_close_before = 0 if report is None else report.dropped.get(
+        DropReason.TOO_CLOSE, 0
+    )
+    for candidate in ranked:
         if len(selected) >= count:
             break
 
@@ -111,6 +128,8 @@ def select_top(
             None,
         )
         if too_close is not None:
+            if report is not None:
+                report.drop(DropReason.TOO_CLOSE)
             logger.debug(
                 "Skipping candidate at %.1fs: %.1fs from the moment at %.1fs "
                 "(minimum %.1fs)",
@@ -121,6 +140,16 @@ def select_top(
             )
             continue
         selected.append(candidate)
+
+    if report is not None:
+        # Whatever the loop never reached, plus anything it reached after the
+        # quota was full. Counted from the arithmetic rather than inside the
+        # loop, which `break`s early and would undercount by exactly the tail it
+        # skipped -- the part being measured.
+        rejected_here = report.dropped.get(DropReason.TOO_CLOSE, 0) - too_close_before
+        outranked = len(ranked) - len(selected) - rejected_here
+        for _ in range(max(0, outranked)):
+            report.drop(DropReason.OUTRANKED)
 
     if len(selected) < count:
         logger.warning(

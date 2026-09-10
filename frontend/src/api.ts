@@ -5,6 +5,7 @@ import {
   ApiError,
   type ApiErrorBody,
   type Audience,
+  type FeedbackResponse,
   type GenerateResponse,
   type JobListResponse,
   type JobResponse,
@@ -12,6 +13,7 @@ import {
   type PipelineOptions,
   type Style,
   type TeaserListResponse,
+  type Verdict,
   type VideoListResponse,
   type VideoResponse,
   type VideoUploadResponse,
@@ -209,6 +211,39 @@ export function listTeasers(): Promise<LibraryResponse> {
   return request<LibraryResponse>("/teasers");
 }
 
-export function checkHealth(): Promise<{ status: string }> {
-  return request<{ status: string }>("/health");
+/** Record what the caller thinks of a clip.
+ *
+ *  PUT, not POST: one person has one verdict on one clip, so sending it twice
+ *  must leave a single row rather than two opinions from the same annotator.
+ *  Every verdict becomes a labelled span for the evaluation harness — see
+ *  backend/app/services/feedback_service.py. */
+export function setFeedback(
+  teaserId: string,
+  verdict: Verdict,
+  note?: string,
+): Promise<FeedbackResponse> {
+  return request<FeedbackResponse>(`/teasers/${teaserId}/feedback`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ verdict, note: note ?? null }),
+  });
+}
+
+/** Withdraw a verdict. Succeeds whether or not there was one, because this
+ *  backs a toggle: pressing `keep` twice means "I did not mean that". */
+export async function clearFeedback(teaserId: string): Promise<void> {
+  const headers = await authHeader();
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/teasers/${teaserId}/feedback`, {
+      method: "DELETE",
+      headers,
+    });
+  } catch {
+    throw new ApiError("NETWORK_ERROR", "Could not reach the backend.", 0);
+  }
+  // 204 carries no body, so it must not go through `parse`, which reads JSON.
+  if (!response.ok) {
+    return parse<never>(response);
+  }
 }

@@ -31,14 +31,39 @@ _TMP = Path(tempfile.mkdtemp(prefix="teaser_tests_"))
 #     `authenticated` role -- exactly as in production.
 #   * fixtures connect as `postgres` to create users and truncate between tests,
 #     which the app role deliberately cannot do.
-# Host port 5432 is Supavisor, so the app user needs its tenant suffix.
-APP_DB_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://teaser_app.teaser:{pw}@localhost:5432/postgres",
-)
-ADMIN_DSN = os.environ.get(
-    "TEST_ADMIN_DSN", "postgresql://postgres.teaser:{pw}@localhost:5432/postgres"
-)
+#
+# Both are REQUIRED, with no default. `clean_tables` truncates app.videos,
+# app.jobs and app.teasers before every test, so whatever these point at is
+# destroyed by running the suite. They once defaulted to
+# localhost:5432/postgres -- the development database behind `docker compose
+# up` -- and a local `pytest` run silently wiped a working account's entire
+# history: uploads, runs and teasers, with the media files left orphaned on
+# disk. Refusing to guess is the only safe default.
+#
+# Requiring the admin DSN too is not belt-and-braces: it is the connection that
+# issues the TRUNCATE. Letting it fall back while the app URL is set would send
+# the writes to a scratch database and the truncation to the real one.
+_DB_ENV_HELP = """
+Set both before running the suite, pointing at a THROWAWAY database:
+
+    export TEST_DATABASE_URL=postgresql+psycopg://teaser_app:<pw>@localhost:5432/teaser_test
+    export TEST_ADMIN_DSN=postgresql://postgres:<pw>@localhost:5432/teaser_test
+
+Never point these at the database serving `docker compose up`: every test
+truncates app.videos, app.jobs and app.teasers, and the rows are not
+recoverable. See .github/workflows/ci.yml for the values CI uses.
+"""
+
+
+def _required_db_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise pytest.UsageError(f"{name} is not set.\n{_DB_ENV_HELP}")
+    return value
+
+
+APP_DB_URL = _required_db_env("TEST_DATABASE_URL")
+ADMIN_DSN = _required_db_env("TEST_ADMIN_DSN")
 
 
 def _read_env_file() -> dict[str, str]:
@@ -92,7 +117,10 @@ from app.main import create_app  # noqa: E402
 SETTINGS = get_settings()
 SOURCE_SECONDS = 8
 
-APP_TABLES = ("app.teasers", "app.jobs", "app.videos")
+# Children first. `cascade` would reach teaser_feedback through app.teasers
+# anyway, but naming it keeps the list a statement of what the suite destroys
+# rather than something a reader has to derive from the foreign keys.
+APP_TABLES = ("app.teaser_feedback", "app.teasers", "app.jobs", "app.videos")
 
 # Fixed for the session so helpers can reference an owner without threading a
 # fixture through every call. Random per run so concurrent runs cannot collide.

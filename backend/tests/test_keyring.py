@@ -169,7 +169,10 @@ def build_provider(keys, behaviour):
     """A GeminiProvider whose single network step is `behaviour(key)`."""
     from app.ai.gemini import GeminiProvider
 
-    provider = GeminiProvider(keyring=KeyRing(keys), model="test-model")
+    provider = GeminiProvider(
+        keyring=KeyRing(keys), model="test-model",
+        request_timeout_seconds=300, generate_timeout_seconds=900,
+    )
     provider._analyze_with = lambda key, request: behaviour(key)
     return provider
 
@@ -236,4 +239,7 @@ def test_a_provider_with_no_keys_at_all_says_so():
     from app.ai.gemini import GeminiProvider
 
     with pytest.raises(AIError, match="GEMINI_API_KEY is not set"):
-        GeminiProvider(keyring=KeyRing([]), model="test-model")
+        GeminiProvider(
+            keyring=KeyRing([]), model="test-model",
+            request_timeout_seconds=300, generate_timeout_seconds=900,
+        )

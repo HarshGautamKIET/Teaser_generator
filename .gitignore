@@ -63,7 +63,12 @@ logs/
 Thumbs.db
 desktop.ini
 
-docs/
+# The design set stays local, with one exception: the decisions log is the
+# record of why this project is shaped the way it is, and a copy that exists
+# only on one machine is not a record. Listed as `docs/*` rather than `docs/`
+# so git descends into the directory far enough to see the negation.
+docs/*
+!docs/DECISIONS.md
 
 # ---------- Self-hosted Supabase (docker/supabase) ----------
 # Vendored from self-hosted/v0.8.0. The stack itself is committed; its
@@ -74,5 +79,17 @@ docker/supabase/.supabase-version
 
 
 .playwright-mcp
-.claude
 
+# Personal Claude Code state stays local; the shared hook does not. The
+# SessionStart hook in settings.json is what keeps docs/DECISIONS.md current,
+# so it has to reach everyone working on the repository rather than only the
+# machine it was written on.
+.claude/*
+!.claude/settings.json
+
+
+# Playwright run output. `screenshots/` is written fresh by e2e/flow.spec.js on
+# every run and `test-results/` holds traces of failures, so neither is a record
+# of anything - the trace alone is several megabytes per failed run.
+e2e/screenshots/
+e2e/test-results/

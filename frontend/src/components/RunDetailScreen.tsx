@@ -4,6 +4,9 @@ import { formatDateTime } from "../format";
 import { STATUS_LABELS, type JobSummary } from "../types";
 import Icon from "../ui/Icon";
 import AsyncBoundary from "./AsyncBoundary";
+import NarrativePanel from "./NarrativePanel";
+import PreviewCard from "./PreviewCard";
+import RunReportPanel from "./RunReportPanel";
 import TeaserCard from "./TeaserCard";
 
 interface Props {
@@ -88,6 +91,13 @@ export default function RunDetailScreen({ job, onBack }: Props) {
           </div>
         )}
 
+        {job.recording_type && (
+          <div className="run-direction">
+            <span className="run-direction-label">Recording type</span>
+            <p>{job.recording_type}</p>
+          </div>
+        )}
+
         {job.status === "failed" && (
           <div className="alert" role="alert">
             <span className="icon-tile icon-tile-danger">
@@ -102,6 +112,21 @@ export default function RunDetailScreen({ job, onBack }: Props) {
           </div>
         )}
       </section>
+
+      {/* Above the clips: it describes the source they were cut from, so it
+          reads as context for the grid rather than a footnote to it. */}
+      <NarrativePanel
+        summary={job.summary}
+        chapters={job.chapters}
+        keywords={job.keywords}
+      />
+
+      <PreviewCard job={job} />
+
+      {/* After the clips would bury it; before them it explains why there are
+          this many. A run that returned one clip out of eight candidates is
+          answered here rather than leaving the user to wonder. */}
+      <RunReportPanel job={job} />
 
       <AsyncBoundary state={state}>
         {({ teasers }) =>

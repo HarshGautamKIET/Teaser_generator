@@ -125,6 +125,12 @@ class Job(Base):
     teaser_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     clip_max_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     aspect_ratio: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # What kind of recording the source is -- webinar, demo, or training. Named
+    # `recording_type` rather than `source_type` because Video.source_type above
+    # already means how the bytes arrived (upload or URL), and one schema cannot
+    # carry two meanings of the same word. NULL means the default type, which is
+    # the shape every run before this column assumed.
+    recording_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Free-text direction for this run. NULL when none was given.
     custom_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -135,8 +141,40 @@ class Job(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # What the AI said about the video as a whole, as opposed to about any one
+    # moment. NULL/empty when the model returned none: these are additional to
+    # the teasers, so their absence never fails a run.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # none_as_null, because SQLAlchemy's JSONB writes a Python None as the JSON
+    # value `null` rather than as SQL NULL by default -- two different things to
+    # every reader of this column, and to the CHECK constraint in
+    # migrations/0009, which allows an array or SQL NULL and nothing else.
+    chapters: Mapped[list | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+    keywords: Mapped[list | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+
+    # The assembled preview, when the run produced one. Flat columns rather than
+    # a Teaser row: a preview has no window in the source and no score, so it
+    # would fill half of that table with nulls and mean something different in
+    # the other half.
+    preview_storage_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    preview_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    preview_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Recorded so a demo can show which provider produced the moments.
     ai_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # What this run discarded and why (migrations/0012). One column rather than
+    # a counter per check: the set of checks grows, and a schema change per
+    # metric is how a project ends up with no metrics. NULL means no report --
+    # the run predates the column, or failed before it had anything to report --
+    # which is a different thing from `{}`, an empty one.
+    pipeline_report: Mapped[dict | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
@@ -178,6 +216,13 @@ class Teaser(Base):
     score: Mapped[float] = mapped_column(Float)
     scores: Mapped[dict] = mapped_column(JSONB, default=dict)
 
+    # The spoken lines burned into this clip, timed from its own start. NULL
+    # when captions were off for the run, or when nobody spoke. See Job.chapters
+    # for why this spells out none_as_null.
+    captions: Mapped[list | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
+
     storage_key: Mapped[str] = mapped_column(String(512))
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -186,4 +231,46 @@ class Teaser(Base):
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
+    )
+
+
+class Verdict:
+    """What someone thought of a clip.
+
+    Binary on purpose. "Would you post this?" is the question the product
+    actually asks its user, and it has two answers; a five-point scale collects
+    a middle that no ranking change can be derived from.
+    """
+
+    KEEP = "keep"
+    DISCARD = "discard"
+
+    ALL = (KEEP, DISCARD)
+
+
+class TeaserFeedback(Base):
+    """One person's verdict on one clip.
+
+    The ground truth this project can collect that a batch annotation exercise
+    cannot: judged by the person who uploaded the source, on their own content,
+    at the moment they are deciding whether to use the clip.
+    """
+
+    __tablename__ = "teaser_feedback"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), index=True)
+    teaser_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey(f"{SCHEMA}.teasers.id"), index=True
+    )
+
+    verdict: Mapped[str] = mapped_column(String(16))
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )

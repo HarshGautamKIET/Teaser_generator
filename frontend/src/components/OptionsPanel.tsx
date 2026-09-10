@@ -2,9 +2,11 @@ import {
   ASPECT_RATIO_OPTIONS,
   AUDIENCE_OPTIONS,
   MAX_CUSTOM_PROMPT_CHARS,
+  RECORDING_TYPE_OPTIONS,
   STYLE_OPTIONS,
   type AspectRatio,
   type Audience,
+  type RecordingType,
   type Style,
 } from "../types";
 import Icon from "../ui/Icon";
@@ -13,10 +15,12 @@ interface Props {
   audience: Audience;
   style: Style;
   aspectRatio: AspectRatio;
+  recordingType: RecordingType;
   customPrompt: string;
   onAudienceChange: (value: Audience) => void;
   onStyleChange: (value: Style) => void;
   onAspectRatioChange: (value: AspectRatio) => void;
+  onRecordingTypeChange: (value: RecordingType) => void;
   onCustomPromptChange: (value: string) => void;
   disabled: boolean;
 }
@@ -25,10 +29,12 @@ export default function OptionsPanel({
   audience,
   style,
   aspectRatio,
+  recordingType,
   customPrompt,
   onAudienceChange,
   onStyleChange,
   onAspectRatioChange,
+  onRecordingTypeChange,
   onCustomPromptChange,
   disabled,
 }: Props) {
@@ -41,6 +47,34 @@ export default function OptionsPanel({
         </span>
         <h2>Audience &amp; Style</h2>
       </div>
+
+      {/* First, because it describes the video rather than the output, and it
+          changes what the rest of this panel produces: how self-contained a
+          moment has to be, how far apart clips are spaced, and whether the
+          frame is cropped or padded to reach the shape chosen below. */}
+      <fieldset className="choice-group" disabled={disabled}>
+        <legend className="choice-legend">What kind of recording is this?</legend>
+        <div className="choice-grid">
+          {RECORDING_TYPE_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className={`choice${
+                recordingType === option.value ? " choice-selected" : ""
+              }`}
+            >
+              <input
+                type="radio"
+                name="recording-type"
+                value={option.value}
+                checked={recordingType === option.value}
+                onChange={() => onRecordingTypeChange(option.value)}
+              />
+              <span className="choice-label">{option.label}</span>
+              <span className="choice-blurb">{option.blurb}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
       <fieldset className="choice-group" disabled={disabled}>
         <legend className="choice-legend">Target Audience</legend>
@@ -154,6 +188,17 @@ export default function OptionsPanel({
             </label>
           ))}
         </div>
+        {/* Said here rather than in the recording-type group above, because
+            this is where the consequence shows up: a demo cut to 9:16 comes
+            back with bars, and that is a deliberate trade rather than a bug to
+            report. */}
+        {recordingType !== "webinar" && (
+          <p className="field-hint">
+            Screen content is fitted inside the frame rather than cropped to
+            fill it, so on-screen text stays readable. Shapes narrower than the
+            source will have bars.
+          </p>
+        )}
       </fieldset>
     </section>
   );

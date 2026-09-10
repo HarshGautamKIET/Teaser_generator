@@ -143,8 +143,10 @@ def test_cancelled_before_pickup_never_calls_the_ai(client, uploaded_video):
 
 @requires_ffmpeg
 def test_cancel_during_analysis_produces_no_teasers(client, uploaded_video):
-    """Analysis is one long call that cannot be interrupted, so the stop lands
-    at the next stage boundary -- before anything is cut."""
+    """Once the source has been delivered, analysis is one call that cannot be
+    interrupted, so the stop lands at the next stage boundary -- before anything
+    is cut. The upload before it *can* be stopped partway; that is
+    test_analysis_stage.py."""
     job_id = queue_job(client, uploaded_video["video_id"])
 
     class CancellingProvider(StubProvider):

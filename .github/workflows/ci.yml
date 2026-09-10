@@ -81,6 +81,35 @@ jobs:
         # suite that never ran.
         run: python -m pytest -ra
 
+  evaluation:
+    name: Evaluation gate
+    runs-on: ubuntu-latest
+
+    # Deliberately separate from `backend`, and deliberately cheap. The gate
+    # scores committed fixtures, so it needs no Postgres, no FFmpeg, no media
+    # and no API key -- which is what lets it run on every pull request rather
+    # than being something somebody remembers to check. A red build here means
+    # a change made the selection worse, which is the one thing the test suite
+    # cannot tell you: every test in it can pass while the clips get worse.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Score the corpus against its thresholds
+        working-directory: backend
+        # Non-zero exit when a headline number drops below its recorded floor,
+        # or when the pipeline stops beating a baseline it is required to beat.
+        # The JSON goes to the step log, so a failure shows which asset moved.
+        run: python -m app.evaluation gate
+
   frontend:
     name: Frontend typecheck
     runs-on: ubuntu-latest

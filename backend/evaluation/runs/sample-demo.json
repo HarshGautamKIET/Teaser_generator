@@ -1,0 +1,9 @@
+{
+  "asset_id": "sample-demo",
+  "note": "Rank 2 lands on a stretch nobody annotated -- kept deliberately, so the corpus is not a set the pipeline scores 1.0 on.",
+  "spans": [
+    { "start": 122.0, "end": 163.0 },
+    { "start": 500.0, "end": 540.0 },
+    { "start": 704.0, "end": 742.0 }
+  ]
+}

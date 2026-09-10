@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-import { fetchTeaserMedia } from "../api";
+import { clearFeedback, setFeedback } from "../api";
 import { timestamp } from "../format";
-import type { Teaser } from "../types";
+import type { Teaser, Verdict } from "../types";
 import Icon from "../ui/Icon";
+import { useAuthedMedia } from "../useMedia";
 
 const SCORE_LABELS: Record<string, string> = {
   hook: "Hook",
@@ -21,39 +22,6 @@ interface Props {
   context?: ReactNode;
 }
 
-/** Teaser media sits behind an ownership check, so the MP4 is fetched with the
- *  access token and played from a blob URL. The URL is revoked on unmount --
- *  without that, every re-render of a teaser list leaks a copy of the video. */
-function useTeaserMedia(path: string): { url: string | null; failed: boolean } {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let objectUrl: string | null = null;
-    let cancelled = false;
-
-    fetchTeaserMedia(path)
-      .then((created) => {
-        if (cancelled) {
-          URL.revokeObjectURL(created);
-          return;
-        }
-        objectUrl = created;
-        setUrl(created);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [path]);
-
-  return { url, failed };
-}
-
 /** `teaser-2-the-opening-claim.mp4`. Punctuation and spaces are folded away so
  *  the name survives every filesystem it might land on. */
 function downloadName(teaser: Teaser): string {
@@ -66,8 +34,40 @@ function downloadName(teaser: Teaser): string {
 }
 
 export default function TeaserCard({ teaser, context }: Props) {
-  const { url, failed } = useTeaserMedia(teaser.video_url);
+  const { url, failed } = useAuthedMedia(teaser.video_url);
   const length = teaser.duration_seconds ?? teaser.end_seconds - teaser.start_seconds;
+
+  // Held locally rather than lifted, because the answer is per-card and nothing
+  // above needs it to re-render. The initial value comes from the clip itself
+  // so the control is already in its correct state on first paint.
+  const [verdict, setVerdict] = useState<Verdict | null>(teaser.feedback);
+  const [saving, setSaving] = useState(false);
+
+  /** Clicking the active verdict withdraws it. Someone who mis-clicked should
+   *  be able to undo without a third control, and a withdrawn verdict is more
+   *  honest ground truth than one they did not mean. */
+  async function judge(next: Verdict) {
+    if (saving) return;
+    const previous = verdict;
+    const target = previous === next ? null : next;
+
+    // Optimistic: the button responds immediately and reverts if the write
+    // fails. A verdict is a one-click judgement and a spinner between the click
+    // and the state change is enough friction to stop people giving them.
+    setVerdict(target);
+    setSaving(true);
+    try {
+      if (target === null) {
+        await clearFeedback(teaser.id);
+      } else {
+        await setFeedback(teaser.id, target);
+      }
+    } catch {
+      setVerdict(previous);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <article className="teaser">
@@ -126,6 +126,34 @@ export default function TeaserCard({ teaser, context }: Props) {
           ))}
         </ul>
       )}
+
+      {/* The evaluation corpus, collected one click at a time. Asked here
+          rather than in a separate review screen because this is the moment the
+          user is already deciding whether to post the clip — the judgement
+          exists either way, and this is the only place it is free to capture. */}
+      <div className="teaser-verdict" role="group" aria-label="Would you post this clip?">
+        <span className="teaser-verdict-label">Would you post this?</span>
+        <button
+          type="button"
+          className={`btn btn-sm${verdict === "keep" ? " btn-brand" : " btn-secondary"}`}
+          aria-pressed={verdict === "keep"}
+          disabled={saving}
+          onClick={() => judge("keep")}
+        >
+          <Icon name="check" size={13} />
+          Keep
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm${verdict === "discard" ? " btn-brand" : " btn-secondary"}`}
+          aria-pressed={verdict === "discard"}
+          disabled={saving}
+          onClick={() => judge("discard")}
+        >
+          <Icon name="x" size={13} />
+          No
+        </button>
+      </div>
 
       {/* Named from what the clip is, not from its record id: a filename is
           something the user keeps, and an internal identifier means nothing to

@@ -5,13 +5,18 @@ Its output is explicitly labelled so it can never be mistaken for real analysis
 (CLAUDE.md: do not fabricate successful AI results).
 """
 
+from pathlib import Path
+
 from app.ai.base import (
     AIError,
     AIProvider,
     AnalysisRequest,
     RawCandidate,
     RawCandidateList,
+    RawCaption,
+    RawChapter,
     RawScores,
+    RawTranscript,
 )
 
 
@@ -71,4 +76,52 @@ class FakeProvider(AIProvider):
                     ),
                 )
             )
-        return RawCandidateList(candidates=candidates)
+        return RawCandidateList(
+            candidates=candidates,
+            # Labelled like everything else here. A rehearsal that showed a
+            # plausible unmarked summary would be the one part of the offline
+            # demo that could be mistaken for real analysis.
+            summary=(
+                "[FAKE] Placeholder summary for the "
+                f"{request.audience.value} audience. Generated offline; this "
+                "is not real AI analysis."
+            ),
+            chapters=self._chapters(request.video_duration_seconds),
+            keywords=["[FAKE] placeholder", "[FAKE] offline"],
+        )
+
+    def transcribe(self, audio_path: Path, duration_seconds: float) -> RawTranscript:
+        """Evenly spaced placeholder cues, labelled like everything else here.
+
+        Burned into the picture, an unmarked plausible-looking caption would be
+        the hardest part of an offline rehearsal to tell from real output --
+        and the only part a viewer reads directly off the clip.
+        """
+        step = 3.0
+        count = max(1, int(duration_seconds // step))
+        return RawTranscript(
+            captions=[
+                RawCaption(
+                    start_seconds=round(index * step, 2),
+                    end_seconds=round(
+                        min((index + 1) * step, duration_seconds), 2
+                    ),
+                    text=f"[FAKE] Placeholder caption {index + 1}",
+                )
+                for index in range(count)
+            ]
+        )
+
+    @staticmethod
+    def _chapters(duration: float) -> list[RawChapter]:
+        """Three equal sections, or one when the video is too short to split."""
+        count = 3 if duration >= 3.0 else 1
+        step = duration / count
+        return [
+            RawChapter(
+                start_seconds=round(index * step, 2),
+                end_seconds=round(min((index + 1) * step, duration), 2),
+                title=f"[FAKE] Section {index + 1}",
+            )
+            for index in range(count)
+        ]

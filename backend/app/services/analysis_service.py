@@ -10,14 +10,19 @@ import unicodedata
 from dataclasses import dataclass, field
 
 from app.ai.base import (
+    MAX_CHAPTERS,
     MAX_HOOK_CHARS,
+    MAX_KEYWORD_CHARS,
+    MAX_KEYWORDS,
     MAX_REASON_CHARS,
+    MAX_SUMMARY_CHARS,
     MAX_TITLE_CHARS,
     RawCandidate,
     RawCandidateList,
 )
 from app.config import Settings
 from app.errors import AppError
+from app.services.pipeline_report import CandidateReport, DropReason
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +69,33 @@ class Candidate:
         )
 
 
+@dataclass
+class Chapter:
+    """One validated section of the source video."""
+
+    start_seconds: float
+    end_seconds: float
+    title: str
+
+
+@dataclass
+class Narrative:
+    """What the model said about the video as a whole.
+
+    Separate from the candidates because it fails differently. A moment that
+    does not survive validation costs the run a clip; a summary that does not is
+    simply absent, and the teasers are unaffected. So nothing here can raise --
+    the empty Narrative is a valid one.
+    """
+
+    summary: str = ""
+    chapters: list[Chapter] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.summary or self.chapters or self.keywords)
+
+
 def clean_text(value: str, max_chars: int) -> str:
     """Normalise an untrusted AI string and cap its length.
 
@@ -95,29 +127,45 @@ def _reject_reason(
     settings: Settings,
     video_duration: float,
     max_clip_seconds: int,
-) -> str | None:
-    """Return why this candidate is unusable, or None if it is fine."""
+) -> tuple[str, str] | None:
+    """Return (reason slug, detail) for an unusable candidate, or None.
+
+    Two values because the two readers want different things. The detail goes
+    in the log, where a human is diagnosing one candidate and wants the numbers.
+    The slug is counted across runs, so it must be the same string every time --
+    a per-candidate sentence would produce one key with a count of one for each.
+
+    First failure wins, in the order below. A candidate that is both out of
+    bounds and too short is counted once, under the more fundamental of the two,
+    so the per-reason totals stay interpretable.
+    """
     start, end = raw.start_seconds, raw.end_seconds
 
     if start < 0:
-        return f"start {start:.2f}s is negative"
+        return DropReason.BOUNDS, f"start {start:.2f}s is negative"
     if end <= start:
-        return f"end {end:.2f}s is not after start {start:.2f}s"
+        return DropReason.BOUNDS, f"end {end:.2f}s is not after start {start:.2f}s"
     if end > video_duration:
-        return f"end {end:.2f}s exceeds the video duration {video_duration:.2f}s"
+        return DropReason.BOUNDS, (
+            f"end {end:.2f}s exceeds the video duration {video_duration:.2f}s"
+        )
 
     length = end - start
     if length < settings.teaser_min_seconds:
-        return f"length {length:.2f}s is below the {settings.teaser_min_seconds}s minimum"
+        return DropReason.TOO_SHORT, (
+            f"length {length:.2f}s is below the {settings.teaser_min_seconds}s minimum"
+        )
     if length > max_clip_seconds:
-        return f"length {length:.2f}s is above the {max_clip_seconds}s maximum"
+        return DropReason.TOO_LONG, (
+            f"length {length:.2f}s is above the {max_clip_seconds}s maximum"
+        )
 
     if not clean_text(raw.title, MAX_TITLE_CHARS):
-        return "title is empty"
+        return DropReason.EMPTY_TEXT, "title is empty"
     if not clean_text(raw.hook, MAX_HOOK_CHARS):
-        return "hook is empty"
+        return DropReason.EMPTY_TEXT, "hook is empty"
     if not clean_text(raw.reason, MAX_REASON_CHARS):
-        return "reason is empty"
+        return DropReason.EMPTY_TEXT, "reason is empty"
     return None
 
 
@@ -127,6 +175,7 @@ def validate_candidates(
     video_duration: float,
     max_clip_seconds: int | None = None,
     min_self_contained: float | None = None,
+    report: CandidateReport | None = None,
 ) -> list[Candidate]:
     """Discard every candidate that fails validation, keep the rest.
 
@@ -134,6 +183,12 @@ def validate_candidates(
 
     `max_clip_seconds` and `min_self_contained` default to the server settings
     so existing callers are unaffected.
+
+    `report` is filled in as a side effect when one is supplied. An out
+    parameter rather than an extra return value, because this function's
+    contract is "the candidates that survived, or an exception if none did" and
+    a run that fails here still wants the tally of what it dropped -- which a
+    tuple return would take away at exactly the moment it is most interesting.
     """
     ceiling = max_clip_seconds or settings.teaser_max_seconds
     floor = (
@@ -141,13 +196,18 @@ def validate_candidates(
         if min_self_contained is None
         else min_self_contained
     )
+    tally = report if report is not None else CandidateReport()
+    tally.proposed = len(raw_list.candidates)
+
     valid: list[Candidate] = []
     rejected: list[str] = []
 
     for index, raw in enumerate(raw_list.candidates):
-        reason = _reject_reason(raw, settings, video_duration, ceiling)
-        if reason is not None:
-            rejected.append(f"#{index + 1} ({raw.start_seconds:.1f}s): {reason}")
+        outcome = _reject_reason(raw, settings, video_duration, ceiling)
+        if outcome is not None:
+            slug, detail = outcome
+            tally.drop(slug)
+            rejected.append(f"#{index + 1} ({raw.start_seconds:.1f}s): {detail}")
             continue
 
         valid.append(
@@ -176,11 +236,87 @@ def validate_candidates(
             "configured teaser length."
         )
 
-    return _keep_self_contained(valid, floor)
+    return _keep_self_contained(valid, floor, tally)
+
+
+def validate_narrative(
+    raw_list: RawCandidateList, video_duration: float
+) -> Narrative:
+    """Clean the whole-video fields. Never raises.
+
+    Held to the same standard as the candidates -- every string normalised and
+    capped, every timestamp checked against the real duration, anything that
+    fails discarded rather than repaired -- but not to the same consequence.
+    These fields describe the video; they do not become a file on disk or an
+    argument to a subprocess. A run that produced good clips and a malformed
+    chapter list is a run with good clips.
+    """
+    summary = clean_text(raw_list.summary or "", MAX_SUMMARY_CHARS)
+
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for raw_keyword in raw_list.keywords or []:
+        keyword = clean_text(str(raw_keyword), MAX_KEYWORD_CHARS)
+        # Case-insensitive, because "RAG" and "rag" are one keyword to a reader
+        # and two to a set. The first spelling wins.
+        folded = keyword.casefold()
+        if not keyword or folded in seen:
+            continue
+        seen.add(folded)
+        keywords.append(keyword)
+        if len(keywords) >= MAX_KEYWORDS:
+            break
+
+    chapters: list[Chapter] = []
+    rejected: list[str] = []
+    for index, raw_chapter in enumerate(raw_list.chapters or []):
+        title = clean_text(raw_chapter.title, MAX_TITLE_CHARS)
+        start, end = raw_chapter.start_seconds, raw_chapter.end_seconds
+
+        if not title:
+            rejected.append(f"#{index + 1}: title is empty")
+        elif start < 0:
+            rejected.append(f"#{index + 1}: start {start:.2f}s is negative")
+        elif end <= start:
+            rejected.append(
+                f"#{index + 1}: end {end:.2f}s is not after start {start:.2f}s"
+            )
+        elif start > video_duration:
+            rejected.append(
+                f"#{index + 1}: start {start:.2f}s is past the end of the video"
+            )
+        else:
+            chapters.append(
+                Chapter(
+                    start_seconds=round(start, 3),
+                    # A chapter overrunning the end is clamped rather than
+                    # dropped: unlike a clip window, the only thing downstream
+                    # of this is a contents entry, and losing the last section
+                    # of the video tells the reader less than trimming it does.
+                    end_seconds=round(min(end, video_duration), 3),
+                    title=title,
+                )
+            )
+        if len(chapters) >= MAX_CHAPTERS:
+            break
+
+    chapters.sort(key=lambda chapter: chapter.start_seconds)
+
+    if rejected:
+        logger.warning(
+            "Discarded %d of %d chapters: %s",
+            len(rejected), len(raw_list.chapters or []), "; ".join(rejected),
+        )
+    if not summary:
+        logger.info("The AI returned no usable summary for this run.")
+
+    return Narrative(summary=summary, chapters=chapters, keywords=keywords)
 
 
 def _keep_self_contained(
-    candidates: list[Candidate], threshold: float
+    candidates: list[Candidate],
+    threshold: float,
+    report: CandidateReport | None = None,
 ) -> list[Candidate]:
     """Drop moments that do not stand on their own.
 
@@ -197,6 +333,10 @@ def _keep_self_contained(
     for candidate in candidates:
         score = candidate.scores.get("self_contained", 0.0)
         (kept if score >= threshold else dropped).append((candidate, score))
+
+    if report is not None:
+        for _ in dropped:
+            report.drop(DropReason.NOT_SELF_CONTAINED)
 
     if dropped:
         logger.info(

@@ -1,0 +1,13 @@
+{
+  "asset_id": "sample-webinar",
+  "duration_seconds": 1800.0,
+  "origin": "annotation",
+  "note": "SYNTHETIC. A hand-built asset so the gate has something to score before any real video is annotated. Replace it with a real one; do not tune the pipeline against it.",
+  "spans": [
+    { "start": 245.0, "end": 290.0, "why": "the migration cost figure, stated with the number", "strength": 3 },
+    { "start": 610.0, "end": 655.0, "why": "architecture reveal: why the queue was removed", "strength": 3 },
+    { "start": 1120.0, "end": 1168.0, "why": "the objection about vendor lock-in, answered", "strength": 2 },
+    { "start": 1402.0, "end": 1440.0, "why": "customer result with a before and after", "strength": 2 },
+    { "start": 1655.0, "end": 1700.0, "why": "the closing claim the whole talk builds to", "strength": 1 }
+  ]
+}

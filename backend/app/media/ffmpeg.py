@@ -10,6 +10,7 @@ no value here can be interpreted as a command (SECURITY.md).
 
 import json
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,26 @@ CUT_TIMEOUT_SECONDS = 600
 
 # The shorter side of every teaser, in pixels: 1080 keeps 9:16 at 1080x1920.
 BASE_PIXELS = 1080
+
+# How a frame is reconciled with an output shape that is not its own. Plain
+# strings rather than the domain enum, for the same reason aspect ratios arrive
+# here as "9:16": this module parses media arguments, it does not import policy.
+# domain.CropMode carries the matching values for the API to validate against.
+CROP = "crop"
+FIT = "fit"
+
+# silencedetect reports both ends of every silence on stderr, one per line:
+#   [silencedetect @ 0x..] silence_start: 12.345
+#   [silencedetect @ 0x..] silence_end: 13.567 | silence_duration: 1.222
+_SILENCE_START = re.compile(r"silence_start:\s*(-?[\d.]+)")
+_SILENCE_END = re.compile(r"silence_end:\s*(-?[\d.]+)")
+
+# volumedetect writes its summary to stderr when the stream ends:
+#   [Parsed_volumedetect_0 @ 0x...] mean_volume: -23.4 dB
+#   [Parsed_volumedetect_0 @ 0x...] max_volume: -3.1 dB
+# A window of pure digital silence reports `-inf`, which is a real answer and
+# not a parse failure, so the pattern accepts it.
+_MEAN_VOLUME = re.compile(r"mean_volume:\s*(-?[\d.]+|-inf)\s*dB")
 
 
 class MediaError(Exception):
@@ -98,14 +119,33 @@ def output_resolution(aspect_ratio: str) -> tuple[int, int]:
     return _even(width), _even(height)
 
 
-def build_filter(aspect_ratio: str) -> str:
-    """Centre-crop to the target ratio, then scale to the target resolution.
+def build_filter(aspect_ratio: str, crop_mode: str = "crop") -> str:
+    """Fit the source to the target ratio, then scale to the target resolution.
 
-    Cropping before scaling fills the frame without letterboxing or distortion,
-    which is what a vertical social teaser needs (VIDEO_PIPELINE.md).
+    Two ways to reconcile a frame with a shape that is not its own:
+
+    `crop` centre-crops, filling the frame without letterboxing or distortion,
+    which is what a vertical social teaser of a person talking needs
+    (VIDEO_PIPELINE.md).
+
+    `fit` scales the whole frame down and pads what is left over. It exists for
+    screen recordings, where cropping is not a trade-off but a defect: taking
+    16:9 to 9:16 keeps under a third of the width, and a demo's value is the UI
+    text and the result on screen, both of which are usually the first things
+    outside a centre crop. Padding keeps the frame legible at the cost of bars.
     """
     width_token, height_token, _, _ = _parse_ratio(aspect_ratio)
     width, height = output_resolution(aspect_ratio)
+
+    if crop_mode == FIT:
+        return (
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease"
+            f",pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+        )
+    if crop_mode != CROP:
+        raise MediaError(
+            f"Unknown crop mode {crop_mode!r}. Expected {CROP!r} or {FIT!r}."
+        )
 
     return (
         f"crop=w='min(iw,ih*{width_token}/{height_token})'"
@@ -118,10 +158,13 @@ def build_filter(aspect_ratio: str) -> str:
 # ----------------------------------------------------------------------
 # Running the binaries
 # ----------------------------------------------------------------------
-def _run(command: list[str], timeout: int, tool: str) -> subprocess.CompletedProcess:
+def _run(
+    command: list[str], timeout: int, tool: str, cwd: Path | None = None
+) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
-            command, capture_output=True, text=True, timeout=timeout
+            command, capture_output=True, text=True, timeout=timeout,
+            cwd=None if cwd is None else str(cwd),
         )
     except FileNotFoundError:
         raise MediaError(
@@ -213,6 +256,345 @@ def probe(path: Path, ffprobe_path: str = "ffprobe") -> MediaInfo:
     )
 
 
+@dataclass(frozen=True)
+class Silence:
+    """One stretch of the audio track quiet enough to cut on."""
+
+    start_seconds: float
+    end_seconds: float
+
+
+def detect_silence(
+    source: Path,
+    duration_seconds: float,
+    ffmpeg_path: str = "ffmpeg",
+    noise_db: int = -30,
+    min_silence_seconds: float = 0.3,
+) -> list[Silence]:
+    """Find every silent stretch in the audio track.
+
+    This is what stands in for a transcript. Locating the pauses is enough to
+    place a cut between two words rather than through one, and it needs nothing
+    that is not already installed -- FFmpeg is a hard dependency of this
+    project, and an ASR model would be a new one.
+
+    Decoding is audio-only (`-vn`) because the video stream has nothing to say
+    about where the speech stops, and skipping it is most of the runtime on a
+    long recording.
+
+    Returns an empty list rather than raising when detection fails or the file
+    has no audio: snapping is an improvement to a cut point, not a precondition
+    for having one, and a run must not fail because the pauses could not be
+    found (SECURITY.md's discipline, applied to a non-security case).
+    """
+    source = Path(source)
+    try:
+        process = _run(
+            [
+                ffmpeg_path,
+                "-hide_banner",
+                "-vn",
+                "-i", str(source),
+                "-af", f"silencedetect=noise={noise_db}dB:d={min_silence_seconds}",
+                "-f", "null",
+                "-",
+            ],
+            CUT_TIMEOUT_SECONDS,
+            "FFmpeg",
+        )
+    except MediaError:
+        # A missing binary or a wedged process. Both are worth knowing about and
+        # neither is this function's to report: whatever is wrong with FFmpeg
+        # will be wrong again at the cutting stage, which fails the run with an
+        # error code that says so.
+        logger.warning(
+            "Could not run silence detection on %s", source.name, exc_info=True
+        )
+        return []
+
+    if process.returncode != 0:
+        logger.warning(
+            "Silence detection failed for %s: %s",
+            source.name, _stderr_tail(process),
+        )
+        return []
+
+    starts = [float(m) for m in _SILENCE_START.findall(process.stderr or "")]
+    ends = [float(m) for m in _SILENCE_END.findall(process.stderr or "")]
+
+    # A recording that fades out at the end produces a final silence_start with
+    # no silence_end -- the stream stops before the quiet does. Closing it at
+    # the duration keeps that last pause usable instead of discarding it.
+    if len(starts) == len(ends) + 1:
+        ends.append(duration_seconds)
+    elif len(starts) != len(ends):
+        logger.warning(
+            "Unbalanced silencedetect output for %s (%d starts, %d ends); "
+            "ignoring it rather than guessing which pairs are real",
+            source.name, len(starts), len(ends),
+        )
+        return []
+
+    silences = [
+        Silence(start_seconds=max(0.0, start), end_seconds=min(end, duration_seconds))
+        for start, end in zip(starts, ends)
+        if end > start
+    ]
+    logger.info("Found %d silence(s) in %s", len(silences), source.name)
+    return silences
+
+
+def mean_volume_db(
+    source: Path,
+    start_seconds: float,
+    end_seconds: float,
+    ffmpeg_path: str = "ffmpeg",
+) -> float | None:
+    """Average loudness of one window, in dBFS. None when it cannot be measured.
+
+    This is what makes cut quality measurable without a human and without a
+    model. A clip that opens mid-word opens at roughly the speech level of the
+    rest of the clip; a clip that opens on a pause opens well below it. So the
+    quality of a cut point is the *difference* between the first fraction of a
+    second and the clip as a whole, and both terms are this function.
+
+    `volumedetect` rather than `astats` or `ebur128`: it needs no filter chain,
+    reports one number, and is present in every FFmpeg build. Loudness
+    normalisation standards measure perceived loudness over long windows, which
+    is the wrong instrument for a 150 ms question.
+
+    Returns None rather than raising, for the same reason `detect_silence` does:
+    this measures a clip that has already been cut successfully, so nothing here
+    is allowed to turn a finished teaser into a failed run.
+    """
+    source = Path(source)
+    if end_seconds <= start_seconds:
+        return None
+
+    try:
+        process = _run(
+            [
+                ffmpeg_path,
+                "-hide_banner",
+                "-nostats",
+                "-ss", f"{start_seconds:.3f}",
+                "-t", f"{end_seconds - start_seconds:.3f}",
+                "-i", str(source),
+                "-vn",
+                "-af", "volumedetect",
+                "-f", "null",
+                "-",
+            ],
+            PROBE_TIMEOUT_SECONDS,
+            "FFmpeg",
+        )
+    except MediaError:
+        logger.debug("Could not measure loudness of %s", source.name, exc_info=True)
+        return None
+
+    if process.returncode != 0:
+        return None
+
+    match = _MEAN_VOLUME.search(process.stderr or "")
+    if match is None:
+        return None
+    raw = match.group(1)
+    # Digital silence. Reported as a real, very quiet measurement rather than as
+    # "unmeasurable": a window with nothing in it is the cleanest possible place
+    # to start a clip, and returning None would drop that from the average.
+    return -120.0 if raw == "-inf" else float(raw)
+
+
+@dataclass(frozen=True)
+class Segment:
+    """One piece of an assembled timeline.
+
+    A `source` of None is a generated card -- black picture and silence for
+    `duration_seconds` -- which is how the title and closing frames are made
+    without needing an image on disk.
+    """
+
+    duration_seconds: float
+    source: Path | None = None
+    start_seconds: float = 0.0
+
+
+def assemble(
+    segments: list[Segment],
+    output: Path,
+    width: int,
+    height: int,
+    overlay: Path | None = None,
+    fps: int = 30,
+    source_has_audio: bool = True,
+    ffmpeg_path: str = "ffmpeg",
+    ffprobe_path: str = "ffprobe",
+) -> ClipResult:
+    """Join segments into one file in a single pass.
+
+    Everything is normalised before the join, because concat refuses streams
+    that disagree: each piece is scaled and padded to the same frame, forced to
+    the same frame rate, and resampled to the same audio format. A card
+    contributes silence so that the audio track is continuous rather than
+    stopping and restarting, which some players handle by ending playback.
+
+    One filter graph and one encode, rather than rendering each piece to its
+    own file and concatenating those. The intermediate files would each be
+    encoded and immediately decoded again, which costs quality as well as time.
+
+    `overlay` is an ASS script timed against the *assembled* timeline, so cards
+    and titles are drawn after the join rather than baked into the pieces.
+    """
+    output = Path(output)
+    if not segments:
+        raise MediaError("An assembled preview needs at least one segment.")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    inputs: list[str] = []
+    video_labels: list[str] = []
+    audio_labels: list[str] = []
+    chains: list[str] = []
+    index = 0
+
+    for position, segment in enumerate(segments):
+        if segment.duration_seconds <= 0:
+            raise MediaError(
+                f"Segment {position} has a non-positive duration "
+                f"({segment.duration_seconds})."
+            )
+
+        real = segment.source is not None and source_has_audio
+        if segment.source is not None:
+            inputs += [
+                "-ss", f"{segment.start_seconds:.3f}",
+                "-t", f"{segment.duration_seconds:.3f}",
+                "-i", str(Path(segment.source).resolve()),
+            ]
+        else:
+            inputs += [
+                "-f", "lavfi",
+                "-t", f"{segment.duration_seconds:.3f}",
+                "-i", f"color=c=black:s={width}x{height}:r={fps}",
+            ]
+        video_index = index
+        index += 1
+
+        if real:
+            audio_index = video_index
+        else:
+            inputs += [
+                "-f", "lavfi",
+                "-t", f"{segment.duration_seconds:.3f}",
+                "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            ]
+            audio_index = index
+            index += 1
+
+        chains.append(
+            f"[{video_index}:v]scale={width}:{height}"
+            ":force_original_aspect_ratio=decrease"
+            f",pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black"
+            f",setsar=1,fps={fps}[v{position}]"
+        )
+        chains.append(
+            f"[{audio_index}:a]aresample=44100"
+            ",aformat=sample_fmts=fltp:channel_layouts=stereo"
+            f"[a{position}]"
+        )
+        video_labels.append(f"[v{position}]")
+        audio_labels.append(f"[a{position}]")
+
+    pairs = "".join(v + a for v, a in zip(video_labels, audio_labels))
+    chains.append(f"{pairs}concat=n={len(segments)}:v=1:a=1[vcat][aout]")
+
+    workdir = None
+    if overlay is not None:
+        overlay = Path(overlay)
+        if not overlay.is_file():
+            raise MediaError(f"The overlay script is missing: {overlay}")
+        # Same bare-filename-with-a-working-directory trick as cut_clip: the
+        # filter parses this argument, and a Windows path would arrive full of
+        # characters that mean something to that parser.
+        workdir = overlay.parent
+        chains.append(f"[vcat]ass={overlay.name}[vout]")
+        video_out = "[vout]"
+    else:
+        video_out = "[vcat]"
+
+    process = _run(
+        [ffmpeg_path, "-y", "-hide_banner", *inputs,
+         "-filter_complex", ";".join(chains),
+         "-map", video_out, "-map", "[aout]",
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+         "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-b:a", "128k",
+         "-movflags", "+faststart",
+         str(output.resolve())],
+        CUT_TIMEOUT_SECONDS,
+        "FFmpeg",
+        cwd=workdir,
+    )
+    if process.returncode != 0:
+        output.unlink(missing_ok=True)
+        raise MediaError(f"FFmpeg could not assemble the preview: {_stderr_tail(process)}")
+    if not output.is_file() or output.stat().st_size == 0:
+        output.unlink(missing_ok=True)
+        raise MediaError("FFmpeg reported success but produced no preview.")
+
+    logger.info("Assembled a %d-segment preview -> %s", len(segments), output.name)
+    return ClipResult(
+        path=output,
+        size_bytes=output.stat().st_size,
+        info=probe(output, ffprobe_path),
+    )
+
+
+def extract_audio(
+    source: Path,
+    output: Path,
+    start_seconds: float,
+    end_seconds: float,
+    ffmpeg_path: str = "ffmpeg",
+) -> Path:
+    """Write one window's audio to a mono 16kHz WAV.
+
+    Speech recognition gains nothing from stereo or from a 48kHz sample rate,
+    and this file is about to be sent over the wire: mono 16kHz is the usual
+    input format for the task and roughly a twelfth the size of the source
+    audio. A minute of it is a few hundred kilobytes.
+    """
+    source, output = Path(source), Path(output)
+    if end_seconds <= start_seconds:
+        raise MediaError(
+            f"End time ({end_seconds}s) must be after start time ({start_seconds}s)."
+        )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    process = _run(
+        [
+            ffmpeg_path, "-y",
+            "-ss", f"{start_seconds:.3f}",
+            "-i", str(source),
+            "-t", f"{end_seconds - start_seconds:.3f}",
+            "-vn",
+            "-ac", "1",
+            "-ar", "16000",
+            "-c:a", "pcm_s16le",
+            str(output),
+        ],
+        CUT_TIMEOUT_SECONDS,
+        "FFmpeg",
+    )
+    if process.returncode != 0:
+        output.unlink(missing_ok=True)
+        raise MediaError(f"FFmpeg could not extract the audio: {_stderr_tail(process)}")
+    if not output.is_file() or output.stat().st_size == 0:
+        output.unlink(missing_ok=True)
+        raise MediaError("FFmpeg reported success but produced no audio.")
+    return output
+
+
 def cut_clip(
     source: Path,
     output: Path,
@@ -221,6 +603,8 @@ def cut_clip(
     ffmpeg_path: str = "ffmpeg",
     ffprobe_path: str = "ffprobe",
     aspect_ratio: str = "9:16",
+    crop_mode: str = CROP,
+    subtitles: Path | None = None,
 ) -> ClipResult:
     """Cut [start, end) out of `source` and write a teaser to `output`.
 
@@ -242,13 +626,35 @@ def cut_clip(
     duration = end_seconds - start_seconds
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    video_filter = build_filter(aspect_ratio, crop_mode)
+    workdir = None
+    if subtitles is not None:
+        subtitles = Path(subtitles)
+        if not subtitles.is_file():
+            raise MediaError(f"The subtitle file is missing: {subtitles}")
+        # Burned last, so the text is rendered at the output resolution rather
+        # than scaled up with the picture.
+        #
+        # Referenced by bare filename with the process started in its own
+        # directory. The filter parses its argument, so a Windows path would
+        # arrive carrying a drive-letter colon and backslashes -- all of which
+        # mean something to that parser and need escaping that differs per
+        # platform. Not passing a path at all is the one approach with nothing
+        # to escape.
+        #
+        # No styling is supplied here: the ASS script carries its own, stated
+        # against its own declared resolution, which is the only way those
+        # numbers mean pixels (services/caption_service.py).
+        workdir = subtitles.parent
+        video_filter = f"{video_filter},ass={subtitles.name}"
+
     process = _run(
         [
             ffmpeg_path, "-y",
             "-ss", f"{start_seconds:.3f}",
             "-i", str(source),
             "-t", f"{duration:.3f}",
-            "-vf", build_filter(aspect_ratio),
+            "-vf", video_filter,
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-crf", "23",
@@ -256,10 +662,11 @@ def cut_clip(
             "-c:a", "aac",
             "-b:a", "128k",
             "-movflags", "+faststart",
-            str(output),
+            str(output.resolve()),
         ],
         CUT_TIMEOUT_SECONDS,
         "FFmpeg",
+        cwd=workdir,
     )
     if process.returncode != 0:
         output.unlink(missing_ok=True)

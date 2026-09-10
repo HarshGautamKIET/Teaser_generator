@@ -1,0 +1,9 @@
+{
+  "_note": "What the gate requires at K=3. Raise these when the pipeline improves; lowering one to turn a red build green is how a gate stops meaning anything.",
+
+  "_min_precision": "Absolute floor on mean precision@3 across the corpus. Set below the current 0.8333 so ordinary variance does not fail the build, and high enough that losing one of the six matched clips does.",
+  "min_precision": 0.75,
+
+  "_beat_baselines": "The check that keeps working as the corpus grows. Absolute numbers move when assets are added; 'better than picking spans by the clock' does not. Only the two baselines that need no media are listed, because the gate has neither video files nor FFmpeg.",
+  "beat_baselines": ["uniform", "random"]
+}

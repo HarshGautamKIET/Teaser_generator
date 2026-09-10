@@ -2,16 +2,21 @@
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain import AspectRatio, Audience, Style
-from app.models import Job, Teaser, Video
+from app.domain import AspectRatio, Audience, RecordingType, Style
+from app.models import Job, Teaser, TeaserFeedback, Verdict, Video
 
 # Generated teasers are served by an ownership-checked route, not a static
 # mount (see api/routes/media.py). The path is relative to the API base.
 def teaser_media_path(teaser_id: str) -> str:
     return f"/teasers/{teaser_id}/media"
+
+
+def preview_media_path(job_id: str) -> str:
+    return f"/jobs/{job_id}/preview/media"
 
 
 class VideoUploadResponse(BaseModel):
@@ -116,10 +121,43 @@ class GenerateRequest(BaseModel):
     teaser_count: int | None = Field(default=None, ge=1, le=10)
     clip_max_seconds: int | None = Field(default=None, ge=5, le=180)
     aspect_ratio: AspectRatio | None = None
+    # Omitted means the default recording type, so a caller written before
+    # recording types existed keeps the behaviour it was written against.
+    recording_type: RecordingType | None = None
     # Bound matches Settings.max_custom_prompt_chars and the CHECK in
     # migrations/0006, so an oversized value is a 422 rather than an
     # IntegrityError -- and cannot be used to crowd out the real instructions.
     custom_prompt: str | None = Field(default=None, max_length=500)
+
+
+class ChapterResponse(BaseModel):
+    """One section of the source video, as the run described it."""
+
+    start_seconds: float
+    end_seconds: float
+    title: str
+
+
+class PipelineReportResponse(BaseModel):
+    """What the run discarded, and how cleanly it cut what it kept.
+
+    Deliberately loose. The stored column is an open set of diagnostics that
+    grows whenever a check is added to the pipeline, and a strict model here
+    would mean two edits and a deploy before a new counter could be seen -- so
+    the shape is validated where it is produced (services/pipeline_report.py)
+    and passed through here.
+
+    The four named fields are the ones the UI reads; `extra="allow"` keeps
+    everything else visible to anyone reading the API directly.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    candidates: dict[str, Any] = Field(default_factory=dict)
+    snap: dict[str, Any] = Field(default_factory=dict)
+    cuts: list[dict[str, Any]] = Field(default_factory=list)
+    clean_cut_rate: float = 0.0
+    degraded: list[str] = Field(default_factory=list)
 
 
 class GenerateResponse(BaseModel):
@@ -143,7 +181,23 @@ class JobResponse(BaseModel):
     # None on runs from before the shape was selectable; the client shows the
     # server default rather than inventing one.
     aspect_ratio: str | None = None
+    recording_type: str | None = None
     custom_prompt: str | None = None
+    # What the run said about the video as a whole. Absent on runs that failed
+    # before analysis, and on runs from before this existed -- the client shows
+    # nothing rather than an empty section.
+    summary: str | None = None
+    chapters: list[ChapterResponse] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    # The assembled preview, when the run made one. `preview_url` is present
+    # only alongside the rest, so a client can treat it as the single test for
+    # whether there is anything to play.
+    preview_url: str | None = None
+    preview_duration_seconds: float | None = None
+    preview_size_bytes: int | None = None
+    # What this run threw away and why. None on runs from before the report
+    # existed, and on runs that failed before they had anything to report.
+    pipeline_report: PipelineReportResponse | None = None
     ai_provider: str | None = None
     error_code: str | None = None
     error_message: str | None = None
@@ -159,7 +213,24 @@ class JobResponse(BaseModel):
             audience=job.audience,
             style=job.style,
             aspect_ratio=job.aspect_ratio,
+            recording_type=job.recording_type,
             custom_prompt=job.custom_prompt,
+            summary=job.summary,
+            # NULL and [] mean the same thing to a reader, so both become the
+            # empty list rather than making every caller handle two absences.
+            chapters=[ChapterResponse(**chapter) for chapter in job.chapters or []],
+            keywords=job.keywords or [],
+            # Requires the caller's access token; storage_key is never exposed.
+            preview_url=(
+                preview_media_path(job.id) if job.preview_storage_key else None
+            ),
+            preview_duration_seconds=job.preview_duration_seconds,
+            preview_size_bytes=job.preview_size_bytes,
+            pipeline_report=(
+                PipelineReportResponse(**job.pipeline_report)
+                if job.pipeline_report
+                else None
+            ),
             ai_provider=job.ai_provider,
             error_code=job.error_code,
             error_message=job.error_message,
@@ -197,6 +268,14 @@ class JobListResponse(BaseModel):
         return cls(jobs=[JobSummary.from_context(*row) for row in rows])
 
 
+class CaptionResponse(BaseModel):
+    """One burned-in caption line, timed from the start of its own clip."""
+
+    start_seconds: float
+    end_seconds: float
+    text: str
+
+
 class TeaserResponse(BaseModel):
     id: str
     title: str
@@ -212,9 +291,19 @@ class TeaserResponse(BaseModel):
     height: int | None = None
     size_bytes: int
     video_url: str
+    # The words burned into the picture, so they can also be read without
+    # decoding the clip. Empty when captions were off or nobody spoke.
+    captions: list[CaptionResponse] = Field(default_factory=list)
+    # The caller's own verdict on this clip, or None if they have not given one.
+    # Carried on the clip rather than fetched separately so the control can
+    # render in its correct state on first paint instead of flicking from
+    # unjudged to judged after a second request.
+    feedback: str | None = None
 
     @classmethod
-    def from_model(cls, teaser: Teaser) -> "TeaserResponse":
+    def from_model(
+        cls, teaser: Teaser, feedback: str | None = None
+    ) -> "TeaserResponse":
         return cls(
             id=teaser.id,
             title=teaser.title,
@@ -231,6 +320,10 @@ class TeaserResponse(BaseModel):
             size_bytes=teaser.size_bytes,
             # Requires the caller's access token; storage_key is never exposed.
             video_url=teaser_media_path(teaser.id),
+            captions=[
+                CaptionResponse(**cue) for cue in teaser.captions or []
+            ],
+            feedback=feedback,
         )
 
 
@@ -238,8 +331,15 @@ class TeaserListResponse(BaseModel):
     teasers: list[TeaserResponse]
 
     @classmethod
-    def from_models(cls, teasers: list[Teaser]) -> "TeaserListResponse":
-        return cls(teasers=[TeaserResponse.from_model(t) for t in teasers])
+    def from_models(
+        cls, teasers: list[Teaser], verdicts: dict[str, str] | None = None
+    ) -> "TeaserListResponse":
+        lookup = verdicts or {}
+        return cls(
+            teasers=[
+                TeaserResponse.from_model(t, lookup.get(t.id)) for t in teasers
+            ]
+        )
 
 
 class LibraryTeaser(TeaserResponse):
@@ -258,10 +358,15 @@ class LibraryTeaser(TeaserResponse):
 
     @classmethod
     def from_context(
-        cls, teaser: Teaser, filename: str, audience: str, style: str
+        cls,
+        teaser: Teaser,
+        filename: str,
+        audience: str,
+        style: str,
+        feedback: str | None = None,
     ) -> "LibraryTeaser":
         return cls(
-            **TeaserResponse.from_model(teaser).model_dump(),
+            **TeaserResponse.from_model(teaser, feedback).model_dump(),
             job_id=teaser.job_id,
             video_id=teaser.video_id,
             filename=filename,
@@ -276,6 +381,79 @@ class LibraryResponse(BaseModel):
 
     @classmethod
     def from_rows(
-        cls, rows: Sequence[tuple[Teaser, str, str, str]]
+        cls,
+        rows: Sequence[tuple[Teaser, str, str, str]],
+        verdicts: dict[str, str] | None = None,
     ) -> "LibraryResponse":
-        return cls(teasers=[LibraryTeaser.from_context(*row) for row in rows])
+        lookup = verdicts or {}
+        return cls(
+            teasers=[
+                LibraryTeaser.from_context(*row, feedback=lookup.get(row[0].id))
+                for row in rows
+            ]
+        )
+
+
+# ----------------------------------------------------------------------
+# Feedback (docs/EVALUATION.md)
+# ----------------------------------------------------------------------
+class FeedbackRequest(BaseModel):
+    """Body of PUT /api/teasers/{teaser_id}/feedback.
+
+    A Literal rather than the domain enum, because there are exactly two values
+    and they are the API's vocabulary as much as the database's. The CHECK in
+    migrations/0012 is the same rule stated where a direct write would also hit
+    it.
+    """
+
+    verdict: Literal["keep", "discard"]
+    # Bounded because it is stored and displayed. Long enough for a sentence
+    # about why the clip was wrong, which is the only note anyone writes.
+    note: str | None = Field(default=None, max_length=500)
+
+
+class FeedbackResponse(BaseModel):
+    teaser_id: str
+    verdict: str
+    note: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_model(cls, feedback: TeaserFeedback) -> "FeedbackResponse":
+        return cls(
+            teaser_id=feedback.teaser_id,
+            verdict=feedback.verdict,
+            note=feedback.note,
+            created_at=feedback.created_at,
+            updated_at=feedback.updated_at,
+        )
+
+
+class FeedbackSummary(BaseModel):
+    """How the caller has judged their clips so far.
+
+    `pending` is the number that matters. A corpus is only worth scoring
+    against once most clips have a verdict, and a summary that reported only
+    keeps and discards would look complete at three labels out of ninety.
+    """
+
+    kept: int = 0
+    discarded: int = 0
+    pending: int = 0
+
+    @property
+    def judged(self) -> int:
+        return self.kept + self.discarded
+
+    @classmethod
+    def from_counts(
+        cls, verdicts: dict[str, int], total_teasers: int
+    ) -> "FeedbackSummary":
+        kept = verdicts.get(Verdict.KEEP, 0)
+        discarded = verdicts.get(Verdict.DISCARD, 0)
+        return cls(
+            kept=kept,
+            discarded=discarded,
+            pending=max(0, total_teasers - kept - discarded),
+        )

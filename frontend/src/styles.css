@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------
    Teaser Generator — composed from the Oripio design system.
    Every value here resolves to a token from @ds/styles.css; no raw hex,
-   no second brand hue, no gradient outside the sidebar promo block.
+   no second brand hue, no gradients.
    ------------------------------------------------------------------ */
 
 html,
@@ -99,6 +99,14 @@ body {
   color: var(--text-strong);
 }
 
+/* The single navigation landmark. It takes the sidebar's spare height so that
+   `.nav-group-end` still has somewhere to push Settings down to. */
+.nav-rail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Groups size to their contents. When the rail held a single group it could
    take the remaining height; several of them sharing `flex: 1` would divide
    the rail into equal bands instead, spacing three short lists apart. */
@@ -110,8 +118,11 @@ body {
   margin-top: var(--space-6);
 }
 
-/* Pushed to the floor, above the promo. */
-.nav-group-end {
+/* Pushed to the floor of the rail. Qualified with `.nav-group` deliberately:
+   Settings is also a `.nav-group`, so the stacking margin above outranked a
+   bare `.nav-group-end` and quietly cancelled the `auto`. It went unnoticed
+   while the promo block sat underneath filling the gap. */
+.nav-group.nav-group-end {
   margin-top: auto;
   padding-top: var(--space-6);
 }
@@ -160,6 +171,13 @@ body {
   background: var(--ink-50);
 }
 
+/* Every other control in this file rings on keyboard focus; the nav rows were
+   the one set that did not, leaving tab position invisible in the sidebar. */
+.nav-item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
 .nav-item-active {
   background: var(--nav-item-active-bg);
   color: var(--nav-item-active-text);
@@ -202,27 +220,18 @@ body {
   color: var(--green-600);
 }
 
-/* The single saturated block in the product — pinned last. */
-.promo {
-  margin-top: var(--space-5);
-  background: linear-gradient(180deg, var(--green-600) 0%, var(--green-800) 100%);
-  border-radius: var(--radius-lg);
-  padding: var(--card-pad) var(--shell-pad);
-  text-align: center;
-  color: var(--text-on-brand);
-}
-
-.promo-title {
-  font-size: var(--text-md);
-  font-weight: var(--weight-bold);
-  letter-spacing: var(--tracking-tight);
-}
-
-.promo-body {
-  margin-top: var(--space-2);
-  font-size: var(--text-xs);
-  line-height: var(--leading-normal);
-  color: rgba(255, 255, 255, 0.78);
+/* Reachable by a screen reader, absent for everyone else. Used for the nav
+   hints, which have to sit outside the rows they describe. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 /* ------------------------------------------------------------------
@@ -1020,8 +1029,115 @@ body {
   color: var(--text-heading);
 }
 
+/* The verdict control. Sits above the download button because it is the
+   question the user is already answering; the download is what they do after
+   they have answered it. */
+.teaser-verdict {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.teaser-verdict-label {
+  flex: 1 1 auto;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The active verdict is the pressed one, which the button already styles as
+   brand. Stated here as well so the affordance does not depend on colour
+   alone -- the same reason aria-pressed is on the element. */
+.teaser-verdict .btn[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+
 .empty-note {
   font-size: var(--text-sm);
+  color: var(--text-body);
+}
+
+/* ------------------------------------------------------------------
+   Run report -- what a run discarded
+   ------------------------------------------------------------------ */
+.report-lede {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-body);
+  margin-bottom: var(--space-4);
+}
+
+.report-rows {
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.report-rows li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-tile);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-body);
+}
+
+.report-rows li span:last-child {
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
+}
+
+/* minmax(0,1fr) for the same reason .stats uses it: a long stat label would
+   otherwise set the column's minimum width and overflow the card. */
+.report-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--card-gap);
+}
+
+.report-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--surface-tile);
+  border-radius: var(--radius-sm);
+}
+
+.report-stat-label {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.report-stat-value {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
+}
+
+.report-degraded {
+  margin-top: var(--space-5);
+}
+
+.report-degraded ul {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
   color: var(--text-body);
 }
 
@@ -1292,8 +1408,24 @@ body {
     margin-bottom: var(--space-5);
   }
 
-  .nav-group {
+  /* One strip that scrolls, not one per group. Each group used to be its own
+     `overflow-x: auto` box, so the rail became three rows scrolling
+     independently — and with the group labels hidden, nothing left on screen
+     explained why the destinations were split up at all. Dissolving the groups
+     lets every row share a single scroller. */
+  .nav-rail {
+    /* Shrinkable, or it would push the strip wider than the screen instead of
+       scrolling inside it. */
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-direction: row;
+    gap: var(--space-1);
     overflow-x: auto;
+  }
+
+  .nav-group,
+  .nav-group-end {
+    display: contents;
   }
 
   .nav {
@@ -1304,8 +1436,7 @@ body {
     width: auto;
   }
 
-  .nav-label,
-  .promo {
+  .nav-label {
     display: none;
   }
 
@@ -1714,13 +1845,27 @@ body {
 
 /* Teaser media is fetched with the access token, so there is a beat before
    the blob URL exists. Reserve the frame rather than collapsing the card. */
+/* Stands in for the clip while its MP4 downloads, and carries the message when
+   one cannot be fetched.
+ *
+ * Both states used to be invisible. `height: 100%` resolved against a parent
+ * with no height of its own, and the `line-height: 0` that `.teaser-video`
+ * uses to kill the gap under a <video> was inherited here and flattened the
+ * text -- so the block collapsed to nothing, `overflow: hidden` clipped the
+ * rank badge with it, and a teaser still loading was indistinguishable from
+ * one that had failed to generate.
+ *
+ * Sized from the same aspect ratio and cap as `.teaser-video video` so the
+ * card does not jump when the real clip arrives. */
 .teaser-video-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 100%;
+  aspect-ratio: 9 / 16;
+  max-height: 340px;
   font-size: var(--text-xs);
+  line-height: var(--leading-normal);
   color: var(--text-muted);
   background: var(--ink-50);
 }
@@ -1934,18 +2079,14 @@ body {
 }
 
 @media (max-width: 860px) {
-  /* The rail is a horizontal strip here, so its groups sit side by side and
-     scroll together rather than stacking into four bands above the content. */
+  /* The rail is a horizontal strip here, so its rows sit side by side and
+     scroll together rather than stacking into bands above the content. The
+     group boxes themselves are dissolved with `display: contents` above, which
+     is what drops their stacking margins. */
   .sidebar {
     flex-direction: row;
     align-items: center;
     gap: var(--space-4);
-  }
-
-  .nav-group + .nav-group,
-  .nav-group-end {
-    margin-top: 0;
-    padding-top: 0;
   }
 
   .filter,
@@ -2379,6 +2520,71 @@ body {
 
 .run-direction p {
   margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-body);
+}
+
+/* The run's assembled preview (PreviewCard). Wider than a teaser tile because
+   it is one artifact rather than one of a grid, and its aspect ratio follows
+   the run's output shape rather than being pinned to vertical. */
+.preview-video {
+  margin: var(--space-4) 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--ink-900);
+  line-height: 0;
+}
+
+.preview-video video {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+/* What the run said about the source video (NarrativePanel). */
+.narrative-summary {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-body);
+}
+
+.narrative-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.chapter-list {
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chapter {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.chapter:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+/* Fixed width so the titles form a column rather than stepping in and out as
+   the video passes 10:00. */
+.chapter-time {
+  flex: none;
+  width: 3.5rem;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.chapter-title {
   font-size: var(--text-sm);
   color: var(--text-body);
 }
